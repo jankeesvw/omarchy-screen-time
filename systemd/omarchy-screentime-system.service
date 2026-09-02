@@ -1,0 +1,26 @@
+[Unit]
+Description=Screentime screen time daemon (system wide)
+Documentation=https://github.com/jankeesvw/omarchy-screentime
+After=systemd-logind.service
+Wants=systemd-logind.service
+
+[Service]
+Type=simple
+ExecStart=@BINDIR@/omarchy-screentimed
+Restart=always
+RestartSec=2
+KillSignal=SIGTERM
+TimeoutStopSec=10
+# Root, because the point of this mode is that the account being limited
+# cannot stop it. It still needs /run/user/<uid> to notify the desktop, so
+# the sandboxing stays modest on purpose.
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/omarchy-screentime /run/omarchy-screentime
+RuntimeDirectory=omarchy-screentime
+RuntimeDirectoryMode=0755
+StateDirectory=omarchy-screentime
+StateDirectoryMode=0700
+
+[Install]
+WantedBy=multi-user.target

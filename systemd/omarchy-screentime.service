@@ -1,0 +1,17 @@
+[Unit]
+Description=Screentime screen time daemon
+Documentation=https://github.com/jankeesvw/omarchy-screentime
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=@BINDIR@/omarchy-screentimed
+Restart=always
+RestartSec=2
+# The daemon must survive being told to go away, or the budget goes with it.
+KillSignal=SIGTERM
+TimeoutStopSec=10
+
+[Install]
+WantedBy=graphical-session.target

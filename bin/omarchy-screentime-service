@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Enable or disable the soft install: the daemon as the user's own service.
+#
+# The strict install (root service, polkit, a plugin directory the child cannot
+# edit) is a separate script, because it changes ownership of files and that is
+# not something to do behind somebody's back.
+
+set -euo pipefail
+
+here="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pwd)"
+unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+unit="$unit_dir/omarchy-screentime.service"
+
+case "${1:-status}" in
+  enable)
+    mkdir -p -- "$unit_dir"
+    sed "s|@BINDIR@|$here|g" -- "$here/../systemd/omarchy-screentime.service" > "$unit"
+    systemctl --user daemon-reload
+    systemctl --user enable --now omarchy-screentime.service
+    systemctl --user --no-pager status omarchy-screentime.service || true
+    ;;
+  disable)
+    systemctl --user disable --now omarchy-screentime.service || true
+    rm -f -- "$unit"
+    systemctl --user daemon-reload
+    echo "disabled. the days and the statistics remain in ${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-screentime"
+    ;;
+  status)
+    systemctl --user --no-pager status omarchy-screentime.service || true
+    ;;
+  *)
+    echo "usage: $(basename -- "$0") enable|disable|status" >&2
+    exit 2
+    ;;
+esac
