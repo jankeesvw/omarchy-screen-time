@@ -2,6 +2,8 @@
 
 Screen Time for kids on Omarchy. A minute budget that visibly ticks down, locks the screen at zero, and lets extra minutes be earned with multiplication tables and math problems.
 
+![The panel in Limits mode: the time that is left, the day's progress, a math problem to earn minutes, and the rewards earned so far](screenshots/limits.jpg)
+
 ## What is here now
 
 `bin/omarchy-screen-timed` is the daemon. It counts the time, warns, and locks the screen. It is the only thing that touches the state and the config.
@@ -59,11 +61,15 @@ Set `"philosophy": "together"` on a profile (shown as "Agreement" in the setting
 
 Nothing locks and nothing is earned. The widget becomes a mirror that shows time spent, in neutral colours, never counting down. Instead of a budget there is an agreement the family writes together, in the child's own words, shown in the panel; when the day passes the agreed time there is one calm notification stating the fact, and that is all. A break nudge (`break_nudge_minutes`) can point out an unbroken stretch, framed as self care rather than discipline.
 
+![The panel in Agreement mode: time spent today, the agreement in the family's own words, and the child's own notes](screenshots/agreement.jpg)
+
 The panel asks "How is it going?" and keeps the child's notes (`omarchy-screen-time reflect ...` from the terminal does the same). Those notes live in the child's own state directory and go to nobody: showing them is the child's choice. There are no parent buttons in this mode; revisiting the agreement opens the settings, meant to be done side by side.
 
 The two philosophies live per profile, so one child can have limits while another has an agreement, and a family can start strict and grow towards together.
 
 ## Config
+
+![The settings window: the approach choice, and every knob for the chosen mode](screenshots/settings.jpg)
 
 One file, with a profile per child. The daemon clamps every value on read: a budget of -5 becomes 0, a table of 999 disappears, an unknown `on_empty` becomes `lock`. A daemon that crashes on a bad config is unlimited screen time.
 
