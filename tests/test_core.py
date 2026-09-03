@@ -130,6 +130,14 @@ def test_config():
     check("the reward is clamped", profile["earn"]["seconds_per_correct"] == 600)
     check("an unknown active profile is corrected", cfg["active_profile"] == "kid")
 
+    kohn = config.sanitize_profile({"philosophy": "together", "agreement_minutes": 90,
+                                    "agreement_text": "x" * 500, "break_nudge_minutes": -5})
+    check("together is a known philosophy", kohn["philosophy"] == "together")
+    check("an unknown philosophy falls back to limits",
+          config.sanitize_profile({"philosophy": "laissez-faire"})["philosophy"] == "limits")
+    check("the agreement text is capped", len(kohn["agreement_text"]) == 200)
+    check("a negative nudge becomes zero", kohn["break_nudge_minutes"] == 0)
+
     merged = config.deep_merge(
         {"earn": {"enabled": True, "tables": [1, 2]}, "grace_seconds": 60},
         {"earn": {"enabled": False}})

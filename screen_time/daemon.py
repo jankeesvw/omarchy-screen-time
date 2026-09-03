@@ -20,7 +20,16 @@ from . import clock, config as config_mod, paths, quiz as quiz_mod, session, sta
 TICK_SECONDS = 5
 SAVE_EVERY = 30
 IDLE_MAX_SECONDS = 4 * 3600
+REST_RESET_SECONDS = 300  # five quiet minutes and a stretch starts over
+REFLECTION_LIMIT = 20
 PIN_LOCKOUT = [0, 0, 1, 5, 15, 60, 300]
+
+
+def _human_time(seconds):
+    seconds = max(0, int(seconds))
+    if seconds >= 3600:
+        return "%dh%02d" % (seconds // 3600, (seconds % 3600) // 60)
+    return "%dm" % (seconds // 60)
 
 
 def _bind(server, socket_path):
@@ -64,6 +73,9 @@ class Account:
 
         self.paused = False
         self.idle_since = None
+        self.stretch = 0.0        # unbroken screen time, for the break nudge
+        self.rest_since = None
+        self.nudged = False
         self.lock_after = None
         self.lock_count = 0
         self.last_lock_ok = False
@@ -115,7 +127,13 @@ class Account:
             return start <= moment < end
         return moment >= start or moment < end
 
+    @property
+    def together(self):
+        return self.profile["philosophy"] == "together"
+
     def block_reason(self, now):
+        if self.together:
+            return None   # nothing blocks: the agreement is a conversation, not a gate
         if self.in_bedtime(now):
             return "bedtime"
         if self.day.remaining <= 0:
@@ -142,13 +160,56 @@ class Account:
             return
 
         if self.in_use and not self.paused and self.block_reason(now) is None:
-            self.day.spend(min(elapsed, TICK_SECONDS * 4))
-            self.warn(now)
+            step = min(elapsed, TICK_SECONDS * 4)
+            self.day.spend(step)
+            self.stretch += step
+            self.rest_since = None
+            if self.together:
+                self.nudge(now)
+            else:
+                self.warn(now)
+        else:
+            if self.rest_since is None:
+                self.rest_since = now
+            elif now - self.rest_since >= REST_RESET_SECONDS:
+                self.stretch = 0.0
+                self.nudged = False
 
         self.enforce(now)
 
         if self.day.dirty and now - self.last_save > SAVE_EVERY:
             self.save()
+
+    def nudge(self, now):
+        """The together mode's whole voice: information, never a threat.
+
+        One nudge per unbroken stretch, and one note per day when the time
+        passes what the family agreed on. Both are plain statements; nothing
+        counts down and nothing follows if they are ignored.
+        """
+        minutes = self.profile["break_nudge_minutes"]
+        if minutes > 0 and not self.nudged and self.stretch >= minutes * 60:
+            self.nudged = True
+            session.notify(self.uid, "Screen Time",
+                           "You have been at it for %d minutes straight. A little break?" % minutes,
+                           tag="nudge")
+        agreement = self.profile["agreement_minutes"]
+        if agreement > 0 and not self.day.agreement_noted and self.day.spent >= agreement * 60:
+            self.day.agreement_noted = True
+            self.day.dirty = True
+            session.notify(self.uid, "Screen Time",
+                           "Your agreement is about %s of screen time. You are at %s now."
+                           % (_human_time(agreement * 60), _human_time(self.day.spent)),
+                           tag="agreement")
+
+    def reflections(self):
+        out = []
+        for entry in self.day.ledger:
+            if entry.get("kind") != "reflection":
+                continue
+            meta = entry.get("meta") or {}
+            out.append({"t": entry.get("t", 0), "text": str(meta.get("text", ""))})
+        return out[-REFLECTION_LIMIT:]
 
     def warn(self, now):
         left = self.day.remaining
@@ -249,7 +310,7 @@ class Account:
 
     def quiz_next(self, now):
         earn = self.profile["earn"]
-        if not earn["enabled"]:
+        if self.together or not earn["enabled"]:
             return {"ok": False, "error": "earning_disabled"}
         if self.earn_room() <= 0:
             return {"ok": False, "error": "daily_cap_reached",
@@ -304,6 +365,12 @@ class Account:
             "user": self.username,
             "profile": self.profile_key,
             "profile_name": self.profile["name"],
+            "philosophy": self.profile["philosophy"],
+            "agreement_text": self.profile["agreement_text"],
+            "agreement_minutes": self.profile["agreement_minutes"],
+            "break_nudge_minutes": self.profile["break_nudge_minutes"],
+            "stretch_seconds": int(self.stretch),
+            "reflections": self.reflections(),
             "day": self.day.day,
             "phase": phase,
             "counting": phase == "running",
@@ -350,6 +417,13 @@ DEMO_STATUS = {
     "user": "sam",
     "profile": "sam",
     "profile_name": "Sam",
+    "philosophy": "limits",
+    "agreement_text": "",
+    "agreement_minutes": 0,
+    "break_nudge_minutes": 45,
+    "stretch_seconds": 1455,
+    "reflections": [],
+    "pin_set": True,
     "day": "2026-09-02",
     "phase": "running",
     "counting": True,
@@ -531,7 +605,9 @@ class Daemon:
         if account is None:
             return {"ok": False, "error": "not_managed"}
         with self.lock:
-            return account.status(self.clock.now())
+            payload = account.status(self.clock.now())
+            payload["pin_set"] = bool(self.config.get("pin"))
+            return payload
 
     def dispatch(self, uid, message):
         command = str(message.get("cmd", ""))
@@ -578,6 +654,17 @@ class Daemon:
             with self.lock:
                 account.idle_since = now if message.get("value") else None
                 return {"ok": True, "idle": account.idle_since is not None}
+
+        if command == "reflect":
+            # The child's own words about their own time. No PIN: the journal
+            # belongs to the child, the parent only sees what gets shown.
+            text = str(message.get("text", "")).strip()[:280]
+            if not text:
+                return {"ok": False, "error": "empty"}
+            with self.lock:
+                account.day.record("reflection", meta={"text": text})
+                account.save()
+                return {"ok": True, "reflections": account.reflections()}
 
         # everything below changes the budget, so it is the parent's to do
         refusal = self.check_pin(account, message)

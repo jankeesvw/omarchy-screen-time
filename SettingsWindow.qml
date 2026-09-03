@@ -26,6 +26,7 @@ Item {
   readonly property bool divisionOn: service && service.earnOps
     && service.earnOps.indexOf("div") >= 0
   readonly property var tables: service && service.earnTables ? service.earnTables : []
+  readonly property bool together: service ? service.philosophy === "together" : false
 
   readonly property var dayKeys: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
   readonly property var dayLabels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -62,6 +63,9 @@ Item {
     endField.text = service.bedtime && service.bedtime.end ? String(service.bedtime.end) : "07:00"
     rewardField.value = service.earnSecondsPerCorrect
     capField.value = service.earnCapMinutes
+    agreementField.text = String(service.agreementText || "")
+    agreementMinutesField.value = service.agreementMinutes
+    nudgeField.value = service.breakNudgeMinutes
   }
 
   function patch(obj) {
@@ -140,16 +144,103 @@ Item {
         anchors.margins: Style.space(20)
         spacing: Style.space(14)
 
-        // --- budget ---------------------------------------------------
+        // --- approach -------------------------------------------------
         Text {
           textFormat: Text.PlainText
-          text: "Minutes per day"
+          text: "Approach"
           color: root.fadeText(0.4)
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
         }
 
         Row {
+          spacing: Style.space(6)
+
+          Button {
+            text: "Limits"
+            bordered: true
+            selected: !root.together
+            focusable: true
+            onClicked: if (root.together) root.patch({ "philosophy": "limits" })
+          }
+          Button {
+            text: "Together"
+            bordered: true
+            selected: root.together
+            focusable: true
+            onClicked: if (!root.together) root.patch({ "philosophy": "together" })
+          }
+        }
+
+        Text {
+          textFormat: Text.PlainText
+          text: root.together
+            ? "No lock and no rewards. A shared agreement, gentle information, and notes that belong to the child."
+            : "A daily budget, a lock at zero, and minutes to earn with math problems."
+          width: parent.width
+          wrapMode: Text.WordWrap
+          color: root.fadeText(0.5)
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+        }
+
+        PanelSeparator { width: parent.width }
+
+        // --- together: the agreement ----------------------------------
+        Column {
+          width: parent.width
+          spacing: Style.space(10)
+          visible: root.together
+
+          Text {
+            textFormat: Text.PlainText
+            text: "The agreement, in your own words (write it together)"
+            color: root.fadeText(0.4)
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
+
+          TextField {
+            id: agreementField
+            width: parent.width
+            placeholderText: "On school days about an hour, and we stop before dinner."
+            activeFocusOnTab: true
+            onEditingFinished: root.patch({ "agreement_text": text.trim() })
+          }
+
+          Row {
+            spacing: Style.space(16)
+            NumberField {
+              id: agreementMinutesField
+              label: "About how many minutes (0 = no number)"
+              from: 0
+              to: 1440
+              stepSize: 5
+              onModified: function(value) { root.patch({ "agreement_minutes": value }) }
+            }
+            NumberField {
+              id: nudgeField
+              label: "Break nudge after (minutes, 0 = off)"
+              from: 0
+              to: 480
+              stepSize: 5
+              onModified: function(value) { root.patch({ "break_nudge_minutes": value }) }
+            }
+          }
+        }
+
+        // --- budget ---------------------------------------------------
+        Text {
+          textFormat: Text.PlainText
+          text: "Minutes per day"
+          visible: !root.together
+          color: root.fadeText(0.4)
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+        }
+
+        Row {
+          visible: !root.together
           spacing: Style.space(8)
           Repeater {
             id: dayRepeater
@@ -169,11 +260,12 @@ Item {
           }
         }
 
-        PanelSeparator { width: parent.width }
+        PanelSeparator { width: parent.width; visible: !root.together }
 
         // --- bedtime --------------------------------------------------
         Row {
           spacing: Style.space(10)
+          visible: !root.together
           Text {
             textFormat: Text.PlainText
             text: "Bedtime"
@@ -191,7 +283,7 @@ Item {
 
         Row {
           spacing: Style.space(8)
-          visible: root.service && root.service.bedtime ? root.service.bedtime.enabled === true : false
+          visible: !root.together && (root.service && root.service.bedtime ? root.service.bedtime.enabled === true : false)
 
           Text {
             textFormat: Text.PlainText
@@ -223,11 +315,12 @@ Item {
           }
         }
 
-        PanelSeparator { width: parent.width }
+        PanelSeparator { width: parent.width; visible: !root.together }
 
         // --- earning --------------------------------------------------
         Row {
           spacing: Style.space(10)
+          visible: !root.together
           Text {
             textFormat: Text.PlainText
             text: "Earn minutes with math problems"
@@ -246,7 +339,7 @@ Item {
         Column {
           width: parent.width
           spacing: Style.space(10)
-          visible: root.service ? root.service.earnEnabled === true : false
+          visible: !root.together && (root.service ? root.service.earnEnabled === true : false)
 
           Row {
             spacing: Style.space(10)

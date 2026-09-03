@@ -29,6 +29,13 @@ Item {
   property int earnSecondsPerCorrect: 30
   property var budgetMinutes: ({})   // {mon: 60, ...}
   property var bedtime: ({})         // {enabled, start, end}
+  property string philosophy: "limits"
+  property string agreementText: ""
+  property int agreementMinutes: 0
+  property int breakNudgeMinutes: 45
+  property int stretchSeconds: 0
+  property var reflections: []       // [{t, text}], oldest first
+  property bool pinSet: false
 
   // The daemon streams an update roughly every tick. Between events the
   // remaining time keeps counting down locally, so the last minutes read as a
@@ -77,6 +84,13 @@ Item {
     earnSecondsPerCorrect = Number(earn.seconds_per_correct) || 30
     budgetMinutes = event.budget_minutes || {}
     bedtime = event.bedtime || {}
+    philosophy = String(event.philosophy || "limits")
+    agreementText = String(event.agreement_text || "")
+    agreementMinutes = Number(event.agreement_minutes) || 0
+    breakNudgeMinutes = Number(event.break_nudge_minutes) || 0
+    stretchSeconds = Number(event.stretch_seconds) || 0
+    reflections = Array.isArray(event.reflections) ? event.reflections : []
+    pinSet = event.pin_set === true
   }
 
   Process {

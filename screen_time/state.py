@@ -35,6 +35,7 @@ class DayState:
         self.granted = int(raw.get("granted_seconds", 0))
         self.correct = max(0, int(raw.get("correct_answers", 0)))
         self.warned = [int(w) for w in raw.get("warned", []) if isinstance(w, (int, float))]
+        self.agreement_noted = bool(raw.get("agreement_noted", False))
         self.ledger = raw.get("ledger") if isinstance(raw.get("ledger"), list) else []
         self.dirty = False
 
@@ -80,6 +81,7 @@ class DayState:
             "granted_seconds": self.granted,
             "correct_answers": self.correct,
             "warned": self.warned,
+            "agreement_noted": self.agreement_noted,
             "ledger": self.ledger,
         }
 

@@ -31,6 +31,9 @@ DEFAULT_EARN = {
 
 DEFAULT_PROFILE = {
     "name": "Default",
+    # "limits": budget, lock, and earning. "together": no lock and no rewards,
+    # just a shared agreement, gentle information, and the child's own notes.
+    "philosophy": "limits",
     "budget_minutes": {"mon": 60, "tue": 60, "wed": 60, "thu": 60, "fri": 60, "sat": 90, "sun": 90},
     "bedtime": {"enabled": False, "start": "20:00", "end": "07:00"},
     "warn_minutes": [15, 5, 1],
@@ -38,6 +41,9 @@ DEFAULT_PROFILE = {
     "grace_seconds": 60,
     "relock_seconds": 30,
     "unlock_grace_seconds": 120,
+    "agreement_text": "",
+    "agreement_minutes": 0,
+    "break_nudge_minutes": 45,
     "earn": dict(DEFAULT_EARN),
 }
 
@@ -124,8 +130,16 @@ def sanitize_profile(raw):
 
     name = str(raw.get("name", DEFAULT_PROFILE["name"]))[:40]
 
+    philosophy = raw.get("philosophy")
+    if philosophy not in ("limits", "together"):
+        philosophy = DEFAULT_PROFILE["philosophy"]
+
     return {
         "name": name,
+        "philosophy": philosophy,
+        "agreement_text": str(raw.get("agreement_text", ""))[:200],
+        "agreement_minutes": _int(raw.get("agreement_minutes"), DEFAULT_PROFILE["agreement_minutes"], 0, 1440),
+        "break_nudge_minutes": _int(raw.get("break_nudge_minutes"), DEFAULT_PROFILE["break_nudge_minutes"], 0, 480),
         "budget_minutes": budget,
         "bedtime": bedtime,
         "warn_minutes": warn,

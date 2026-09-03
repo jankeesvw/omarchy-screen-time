@@ -17,8 +17,11 @@ Panel {
   readonly property bool connected: service ? service.connected === true : false
   readonly property string phase: service ? String(service.phase) : ""
   readonly property int remaining: service ? service.remainingSeconds : 0
+  // In together mode the widget is a mirror, not a meter: it shows time
+  // spent, never counts down, and carries no warning colours.
+  readonly property bool together: service ? service.philosophy === "together" : false
   readonly property bool blockedPhase: phase === "empty" || phase === "bedtime"
-  readonly property bool low: connected && !blockedPhase
+  readonly property bool low: connected && !together && !blockedPhase
     && remaining <= (service ? service.minWarnSeconds : 60)
 
   // Glyphs as \u escapes so they survive the trip through the editor.
@@ -75,7 +78,11 @@ Panel {
 
   function plain(s) { return String(s || "").replace(/[<>]/g, "") }
 
-  readonly property string label: blockedPhase ? (phase === "bedtime" ? "bedtime" : "0:00") : fmt(remaining)
+  readonly property string label: {
+    if (together) return fmt(service ? service.spentSeconds : 0)
+    if (blockedPhase) return phase === "bedtime" ? "bedtime" : "0:00"
+    return fmt(remaining)
+  }
 
   readonly property string clientPath:
     Qt.resolvedUrl("bin/omarchy-screen-time").toString().replace(/^file:\/\//, "")
@@ -181,10 +188,18 @@ Panel {
 
   onOpenedChanged: {
     if (opened) {
-      if (earnEnabled) fetchQuestion()
+      if (earnEnabled && !together) fetchQuestion()
     } else {
       resetPanel()
     }
+  }
+
+  function submitReflection() {
+    if (reflectProc.running) return
+    var text = reflectField.text.trim()
+    if (text === "") return
+    reflectProc.command = [root.clientPath, "reflect", text]
+    reflectProc.running = true
   }
 
   // --- processes ------------------------------------------------------
@@ -208,6 +223,17 @@ Panel {
         var payload
         try { payload = JSON.parse(text) } catch (e) { return }
         root.applyVerdict(payload)
+      }
+    }
+  }
+
+  Process {
+    id: reflectProc
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var payload
+        try { payload = JSON.parse(text) } catch (e) { return }
+        if (payload.ok === true) reflectField.text = ""
       }
     }
   }
@@ -325,7 +351,7 @@ Panel {
     owner: root
     bar: root.bar
     open: root.opened
-    focusTarget: root.earnEnabled ? answerField : pinField
+    focusTarget: root.together ? reflectField : (root.earnEnabled ? answerField : pinField)
     contentWidth: Math.min(Style.space(330),
                            panel.availableCardWidth > 0 ? panel.availableCardWidth : Style.space(330))
     contentHeight: panel.fittedContentHeight(content.implicitHeight)
@@ -366,7 +392,12 @@ Panel {
             spacing: Style.space(1)
             Text {
               textFormat: Text.PlainText
-              text: (root.service ? root.plain(root.service.profileName) : "") + ": " + root.fmt(root.remaining) + " left"
+              text: {
+                var name = root.service ? root.plain(root.service.profileName) : ""
+                if (root.together)
+                  return name + ": " + root.fmt(root.service ? root.service.spentSeconds : 0) + " today"
+                return name + ": " + root.fmt(root.remaining) + " left"
+              }
               color: Color.popups.text
               font.family: Style.font.family
               font.bold: true
@@ -376,6 +407,15 @@ Panel {
               textFormat: Text.PlainText
               text: {
                 if (!root.service) return ""
+                if (root.together) {
+                  var bits = []
+                  if (root.service.agreementMinutes > 0)
+                    bits.push("your agreement: about " + root.fmt(root.service.agreementMinutes * 60))
+                  if (root.service.stretchSeconds >= 600)
+                    bits.push(root.fmt(root.service.stretchSeconds) + " without a break")
+                  if (root.phase === "paused") bits = ["paused"].concat(bits)
+                  return bits.join("  ·  ")
+                }
                 var parts = [root.fmt(root.service.spentSeconds) + " used",
                              root.fmt(root.service.budgetSeconds) + " budget"]
                 if (root.service.earnedSeconds > 0) parts.push(root.fmt(root.service.earnedSeconds) + " earned")
@@ -394,20 +434,25 @@ Panel {
         }
 
         // How far into the day you are: spent versus everything there is
-        // today, so a glance shows how long you have been at it.
+        // today (or versus the agreement, in together mode, where the bar
+        // stays a neutral colour whatever it says).
         Rectangle {
           width: parent.width
           height: Style.space(4)
           radius: height / 2
+          visible: !root.together || (root.service && root.service.agreementMinutes > 0)
           color: root.fade(Color.popups.text, 0.85)
 
           Rectangle {
-            readonly property int total: root.service
-              ? root.service.spentSeconds + root.remaining : 0
+            readonly property int total: {
+              if (!root.service) return 0
+              if (root.together) return root.service.agreementMinutes * 60
+              return root.service.spentSeconds + root.remaining
+            }
             height: parent.height
             radius: parent.radius
             width: parent.width * (total > 0 ? Math.min(1, (root.service ? root.service.spentSeconds : 0) / total) : 0)
-            color: root.pillColor
+            color: root.together ? (root.bar ? root.bar.barForeground : "white") : root.pillColor
 
             Behavior on width {
               NumberAnimation { duration: 300; easing.type: Easing.OutCubic }
@@ -415,13 +460,132 @@ Panel {
           }
         }
 
-        PanelSeparator { width: parent.width; visible: root.earnEnabled }
+        // --- together mode: the agreement and the child's own notes ------
+        PanelSeparator { width: parent.width; visible: root.together }
+
+        Column {
+          width: parent.width
+          spacing: Style.space(6)
+          visible: root.together
+
+          Text {
+            textFormat: Text.PlainText
+            text: "Our agreement"
+            color: root.fade(Color.popups.text, 0.45)
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            text: root.service && root.service.agreementText !== ""
+              ? "“" + root.plain(root.service.agreementText) + "”"
+              : "Nothing written down yet. Make one together."
+            width: parent.width
+            wrapMode: Text.WordWrap
+            font.italic: root.service ? root.service.agreementText !== "" : false
+            color: Color.popups.text
+            font.family: Style.font.family
+            font.pixelSize: Style.font.body
+          }
+
+          Row {
+            spacing: Style.space(8)
+
+            TextField {
+              id: togetherPinField
+              width: Style.space(90)
+              password: true
+              placeholderText: "PIN"
+              visible: root.service ? root.service.pinSet === true : false
+              activeFocusOnTab: true
+              inputMethodHints: Qt.ImhDigitsOnly
+            }
+            Button {
+              text: "Revisit together"
+              focusable: true
+              anchors.verticalCenter: parent.verticalCenter
+              onClicked: {
+                settingsWindow.show(togetherPinField.text.trim())
+                togetherPinField.text = ""
+                root.close()
+              }
+            }
+          }
+        }
+
+        PanelSeparator { width: parent.width; visible: root.together }
+
+        Column {
+          width: parent.width
+          spacing: Style.space(6)
+          visible: root.together
+
+          Text {
+            textFormat: Text.PlainText
+            text: "How is it going?"
+            color: root.fade(Color.popups.text, 0.45)
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
+
+          Row {
+            width: parent.width
+            spacing: Style.space(8)
+
+            TextField {
+              id: reflectField
+              width: parent.width - reflectButton.implicitWidth - Style.space(8)
+              placeholderText: "a note to yourself about today"
+              activeFocusOnTab: true
+              Keys.onPressed: function(event) {
+                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                  root.submitReflection(); event.accepted = true
+                } else if (event.key === Qt.Key_Escape) {
+                  root.close(); event.accepted = true
+                }
+              }
+            }
+            Button {
+              id: reflectButton
+              text: "Keep"
+              focusable: true
+              anchors.verticalCenter: parent.verticalCenter
+              onClicked: root.submitReflection()
+            }
+          }
+
+          Repeater {
+            model: root.service && root.service.reflections
+              ? root.service.reflections.slice().reverse() : []
+            delegate: Text {
+              textFormat: Text.PlainText
+              text: root.plain(modelData.text)
+              width: parent.width
+              wrapMode: Text.WordWrap
+              color: root.fade(Color.popups.text, 0.25)
+              font.family: Style.font.family
+              font.pixelSize: Style.font.body
+            }
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            text: "These notes are yours. Show them if you want to."
+            color: root.fade(Color.popups.text, 0.55)
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
+        }
+
+        // --- limits mode: earning and the parent controls ----------------
+        PanelSeparator { width: parent.width; visible: root.earnEnabled && !root.together }
 
         // earn minutes with math problems
         Column {
           width: parent.width
           spacing: Style.space(6)
-          visible: root.earnEnabled
+          visible: root.earnEnabled && !root.together
 
           Text {
             textFormat: Text.PlainText
@@ -550,12 +714,13 @@ Panel {
           }
         }
 
-        PanelSeparator { width: parent.width }
+        PanelSeparator { width: parent.width; visible: !root.together }
 
         // parent controls
         Column {
           width: parent.width
           spacing: Style.space(6)
+          visible: !root.together
 
           Text {
             textFormat: Text.PlainText

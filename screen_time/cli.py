@@ -161,6 +161,10 @@ def cmd_config_set(args):
     return _emit(_request({"cmd": "config.set", "config": incoming, "pin": _ask_pin(args)}), args.human)
 
 
+def cmd_reflect(args):
+    return _emit(_request({"cmd": "reflect", "text": " ".join(args.words)}), args.human)
+
+
 def cmd_config_patch(args):
     try:
         patch = json.loads(args.patch)
@@ -215,6 +219,10 @@ def build_parser():
     resume.set_defaults(func=cmd_pause, value=False)
 
     sub.add_parser("lock").set_defaults(func=cmd_lock)
+
+    reflect = sub.add_parser("reflect", help="write a note about your own screen time")
+    reflect.add_argument("words", nargs="+")
+    reflect.set_defaults(func=cmd_reflect)
 
     idle = sub.add_parser("idle", help="for the hypridle hook")
     idle.add_argument("value", choices=["on", "off"])

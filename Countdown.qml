@@ -13,12 +13,14 @@ Item {
   property var service: null   // injected by the shell for the plugin's own panel
 
   readonly property bool connected: service ? service.connected === true : false
+  // Never in together mode: nothing counts down there.
+  readonly property bool together: service ? service.philosophy === "together" : false
   readonly property string phase: service ? String(service.phase) : ""
   readonly property bool graceToLock: (phase === "empty" || phase === "bedtime")
     && service && service.lockInSeconds !== null && !service.locked
   readonly property bool lastMinutes: phase === "running" && service
     && service.remainingSeconds > 0 && service.remainingSeconds <= 300
-  readonly property bool opened: connected && (lastMinutes || graceToLock)
+  readonly property bool opened: connected && !together && (lastMinutes || graceToLock)
 
   readonly property int secondsLeft: {
     if (!service) return 0
