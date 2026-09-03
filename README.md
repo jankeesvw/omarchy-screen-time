@@ -11,7 +11,7 @@ Screen time for kids on Omarchy. A minute budget that visibly ticks down, locks 
 The plugin itself ships three components from one manifest, and they share a single connection to the daemon:
 
 - **Service.qml** (`keepLoaded`) holds the one `omarchy-screentime watch` stream and is where the state lives. It keeps counting down locally between daemon ticks, so the last minutes read as a clock.
-- **BarWidget.qml** is the pill in the bar: a glyph for the phase (hourglass, clock when idle, pause, lock, moon for bedtime) and the time that is left. It warns in amber below the last warning threshold and turns red when the time is up. Hover for the details.
+- **BarWidget.qml** is the pill in the bar plus the panel behind it. The pill shows a glyph for the phase (hourglass, clock when idle, pause, lock, moon for bedtime) and the time that is left; it warns in amber below the last warning threshold and turns red when the time is up. Click it and the panel opens: the child answers math problems to earn minutes right there, and a parent unlocks fixed choices (+15, +30, +60, -15, pause) with the PIN. The PIN goes to the daemon over stdin, never as an argument, and is forgotten when the panel closes.
 - **Countdown.qml** is a small card at the bottom of the screen that appears once the time drops below five minutes, and during the grace period counts down to the lock. It takes no input and never blocks a click.
 
 ```
@@ -97,4 +97,4 @@ For a test with a real daemon: point `SCREENTIME_ROOT` at an empty directory, se
 
 ## What comes next
 
-A panel behind the pill: math problems to earn minutes right where the motivation is, and a parent view with fixed grant choices behind the PIN. The install script for the strict mode is also still to come.
+The install script for the strict mode, and maybe an "unlimited apps" list and buttons on the lock screen itself.
