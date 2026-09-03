@@ -327,8 +327,21 @@ class Account:
                 "room_seconds": self.earn_room(),
                 "ops": earn["ops"],
                 "tables": earn["tables"],
+                "events": self.earn_events(),
             },
         }
+
+    def earn_events(self, limit=50):
+        """Today's earned rewards, oldest first, for the panel's tally list."""
+        out = []
+        for entry in self.day.ledger:
+            if entry.get("kind") != "earn":
+                continue
+            meta = entry.get("meta") or {}
+            out.append({"t": entry.get("t", 0),
+                        "seconds": int(entry.get("seconds", 0)),
+                        "q": str(meta.get("q", ""))})
+        return out[-limit:]
 
 
 DEMO_STATUS = {
@@ -358,6 +371,11 @@ DEMO_STATUS = {
         "room_seconds": 1200,
         "ops": ["mul", "div"],
         "tables": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        "events": [
+            {"t": 1788470000.0, "seconds": 30, "q": "7 × 8"},
+            {"t": 1788470100.0, "seconds": 30, "q": "54 ÷ 6"},
+            {"t": 1788470200.0, "seconds": 30, "q": "9 × 6"},
+        ],
     },
     "demo": True,
 }

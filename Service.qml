@@ -22,6 +22,7 @@ Item {
   property int minWarnSeconds: 60
   property bool earnEnabled: false
   property int earnRoomSeconds: 0
+  property var earnEvents: []        // [{t, seconds, q}], oldest first
 
   // The daemon streams an update roughly every tick. Between events the
   // remaining time keeps counting down locally, so the last minutes read as a
@@ -63,6 +64,7 @@ Item {
     var earn = event.earn || {}
     earnEnabled = earn.enabled === true
     earnRoomSeconds = Number(earn.room_seconds) || 0
+    earnEvents = Array.isArray(earn.events) ? earn.events : []
   }
 
   Process {

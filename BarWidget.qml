@@ -84,6 +84,9 @@ Panel {
 
   property var question: null        // {id, text, reward_seconds}
   property string quizNote: ""       // why there is no question (cap reached, ...)
+  // Newest first, so the reward that just landed is always in view.
+  readonly property var earnEventsView: service && service.earnEvents
+    ? service.earnEvents.slice().reverse() : []
   property string feedback: ""
   property color feedbackColor: root.bar ? root.bar.barForeground : "white"
   readonly property bool earnEnabled: service ? service.earnEnabled === true : false
@@ -461,6 +464,55 @@ Panel {
             color: root.fade(Color.popups.text, 0.45)
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
+          }
+
+          // The tally: every reward earned today, newest on top. The list
+          // scrolls inside a capped height, so the card never outgrows the
+          // screen however good the day was.
+          Column {
+            width: parent.width
+            spacing: Style.space(3)
+            visible: root.earnEventsView.length > 0
+
+            Text {
+              textFormat: Text.PlainText
+              text: "Earned today  ·  " + root.fmt(root.service ? root.service.earnedSeconds : 0)
+              color: root.fade(Color.popups.text, 0.45)
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+            }
+
+            ListView {
+              id: earnList
+              width: parent.width
+              height: Math.min(contentHeight, Style.space(110))
+              clip: true
+              interactive: contentHeight > height
+              model: root.earnEventsView
+              delegate: Item {
+                width: earnList.width
+                height: earnRowText.implicitHeight + Style.space(3)
+
+                Text {
+                  id: earnRowText
+                  textFormat: Text.PlainText
+                  text: root.plain(modelData.q)
+                  color: Color.popups.text
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.body
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+                Text {
+                  textFormat: Text.PlainText
+                  text: "+" + Number(modelData.seconds) + "s"
+                  color: root.okColor
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.body
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+              }
+            }
           }
         }
 
