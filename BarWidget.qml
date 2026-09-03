@@ -348,10 +348,12 @@ Panel {
 
         // header
         Row {
+          id: headerRow
           width: parent.width
           spacing: Style.space(8)
 
           Text {
+            id: headerIcon
             textFormat: Text.PlainText
             text: root.icon
             color: root.pillColor
@@ -360,6 +362,7 @@ Panel {
             anchors.verticalCenter: parent.verticalCenter
           }
           Column {
+            width: headerRow.width - headerIcon.width - headerRow.spacing
             spacing: Style.space(1)
             Text {
               textFormat: Text.PlainText
@@ -373,16 +376,41 @@ Panel {
               textFormat: Text.PlainText
               text: {
                 if (!root.service) return ""
-                var parts = [root.fmt(root.service.budgetSeconds) + " budget"]
+                var parts = [root.fmt(root.service.spentSeconds) + " used",
+                             root.fmt(root.service.budgetSeconds) + " budget"]
                 if (root.service.earnedSeconds > 0) parts.push(root.fmt(root.service.earnedSeconds) + " earned")
                 if (root.service.grantedSeconds !== 0) parts.push(Math.round(root.service.grantedSeconds / 60) + "m granted")
                 if (root.phase === "bedtime") parts = ["It's bedtime"].concat(parts)
                 if (root.phase === "paused") parts = ["paused"].concat(parts)
                 return parts.join("  ·  ")
               }
+              width: parent.width
+              wrapMode: Text.WordWrap
               color: root.fade(Color.popups.text, 0.45)
               font.family: Style.font.family
               font.pixelSize: Style.font.caption
+            }
+          }
+        }
+
+        // How far into the day you are: spent versus everything there is
+        // today, so a glance shows how long you have been at it.
+        Rectangle {
+          width: parent.width
+          height: Style.space(4)
+          radius: height / 2
+          color: root.fade(Color.popups.text, 0.85)
+
+          Rectangle {
+            readonly property int total: root.service
+              ? root.service.spentSeconds + root.remaining : 0
+            height: parent.height
+            radius: parent.radius
+            width: parent.width * (total > 0 ? Math.min(1, (root.service ? root.service.spentSeconds : 0) / total) : 0)
+            color: root.pillColor
+
+            Behavior on width {
+              NumberAnimation { duration: 300; easing.type: Easing.OutCubic }
             }
           }
         }
