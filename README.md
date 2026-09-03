@@ -1,8 +1,17 @@
 # Screen Time
 
-Screen Time for kids on Omarchy. A minute budget that visibly ticks down, locks the screen at zero, and lets extra minutes be earned with multiplication tables and math problems.
+Screen Time for kids on Omarchy, in two flavours, because parents disagree about what screen time should even be.
 
-![The panel in Limits mode: the time that is left, the day's progress, a math problem to earn minutes, and the rewards earned so far](screenshots/limits.jpg)
+**Limits** is the classic one: a daily minute budget that visibly ticks down, warnings, a lock at zero, and extra minutes to earn with multiplication tables and math problems.
+
+**Agreement** is the Alfie Kohn one, for households that lean towards his unconditional parenting: no locks and no rewards, because rewards teach kids to do math for screen time instead of for the math. Instead there is an agreement the family writes together in the child's own words, gentle reminders, and notes that stay the child's own. The widget becomes a mirror that shows time spent, never a meter counting down.
+
+Both live in the same plugin and you switch per child, so a family can start strict and grow towards the agreement.
+
+<p>
+<img src="screenshots/limits.jpg" width="49%" alt="The panel in Limits mode: the time that is left, the day's progress, a math problem to earn minutes, and the rewards earned so far">
+<img src="screenshots/agreement.jpg" width="49%" alt="The panel in Agreement mode: time spent today, the agreement in the family's own words, and the child's own notes">
+</p>
 
 ## What is here now
 
@@ -60,8 +69,6 @@ Also: an answer within `min_answer_seconds` does not count, the same question ca
 Set `"philosophy": "together"` on a profile (shown as "Agreement" in the settings window) and the plugin changes character, along the lines of Alfie Kohn's argument against rewards and control: working with the child instead of doing things to them.
 
 Nothing locks and nothing is earned. The widget becomes a mirror that shows time spent, in neutral colours, never counting down. Instead of a budget there is an agreement the family writes together, in the child's own words, shown in the panel; when the day passes the agreed time there is one calm notification stating the fact, and that is all. A break nudge (`break_nudge_minutes`) can point out an unbroken stretch, framed as self care rather than discipline.
-
-![The panel in Agreement mode: time spent today, the agreement in the family's own words, and the child's own notes](screenshots/agreement.jpg)
 
 The panel asks "How is it going?" and keeps the child's notes (`omarchy-screen-time reflect ...` from the terminal does the same). Those notes live in the child's own state directory and go to nobody: showing them is the child's choice. There are no parent buttons in this mode; revisiting the agreement opens the settings, meant to be done side by side.
 
