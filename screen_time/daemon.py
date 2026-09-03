@@ -161,7 +161,7 @@ class Account:
                 body = ("%d minute left." if threshold == 1 else "%d minutes left.") % threshold
                 if self.profile["earn"]["enabled"] and self.earn_room() > 0:
                     body += " Earn more with math problems."
-                session.notify(self.uid, "Screen time", body,
+                session.notify(self.uid, "Screen Time", body,
                                urgency="critical" if threshold <= 5 else "normal", tag="warn")
                 break
 
@@ -598,7 +598,7 @@ class Daemon:
                     account.day.warned = [w for w in account.day.warned
                                           if w * 60 >= account.day.remaining]
                 account.save()
-                session.notify(account.uid, "Screen time",
+                session.notify(account.uid, "Screen Time",
                                f"You got {minutes} extra minutes." if minutes > 0
                                else f"{abs(minutes)} minutes were taken away.", tag="grant")
                 return account.status(now)

@@ -1,35 +1,35 @@
-# Screentime
+# Screen Time
 
-Screen time for kids on Omarchy. A minute budget that visibly ticks down, locks the screen at zero, and lets extra minutes be earned with multiplication tables and math problems.
+Screen Time for kids on Omarchy. A minute budget that visibly ticks down, locks the screen at zero, and lets extra minutes be earned with multiplication tables and math problems.
 
 ## What is here now
 
-`bin/omarchy-screentimed` is the daemon. It counts the time, warns, and locks the screen. It is the only thing that touches the state and the config.
+`bin/omarchy-screen-timed` is the daemon. It counts the time, warns, and locks the screen. It is the only thing that touches the state and the config.
 
-`bin/omarchy-screentime` is the client. It talks to the daemon over a unix socket and prints JSON, so the QML widget reads the same thing you see from the command line.
+`bin/omarchy-screen-time` is the client. It talks to the daemon over a unix socket and prints JSON, so the QML widget reads the same thing you see from the command line.
 
 The plugin itself ships three components from one manifest, and they share a single connection to the daemon:
 
-- **Service.qml** (`keepLoaded`) holds the one `omarchy-screentime watch` stream and is where the state lives. It keeps counting down locally between daemon ticks, so the last minutes read as a clock.
+- **Service.qml** (`keepLoaded`) holds the one `omarchy-screen-time watch` stream and is where the state lives. It keeps counting down locally between daemon ticks, so the last minutes read as a clock.
 - **BarWidget.qml** is the pill in the bar plus the panel behind it. The pill shows a glyph for the phase (hourglass, clock when idle, pause, lock, moon for bedtime) and the time that is left; it warns in amber below the last warning threshold and turns red when the time is up. Click it and the panel opens: the child answers math problems to earn minutes right there, and a parent unlocks fixed choices (+15, +30, +60, -15, pause) with the PIN. The PIN goes to the daemon over stdin, never as an argument, and is forgotten when the panel closes.
 - **Countdown.qml** is a small card at the bottom of the screen that appears once the time drops below five minutes, and during the grace period counts down to the lock. It takes no input and never blocks a click.
-- **SettingsWindow.qml** is the parent's settings in a floating window of its own, opened from the panel after the PIN unlock: minutes per weekday, bedtime, and the earning knobs (on or off, division problems, which tables, the reward, the daily cap). Every change is a partial `config patch` to the daemon and applies immediately. Changing the PIN itself stays on the command line: `omarchy-screentime pin set`, which asks for the current PIN first.
+- **SettingsWindow.qml** is the parent's settings in a floating window of its own, opened from the panel after the PIN unlock: minutes per weekday, bedtime, and the earning knobs (on or off, division problems, which tables, the reward, the daily cap). Every change is a partial `config patch` to the daemon and applies immediately. Changing the PIN itself stays on the command line: `omarchy-screen-time pin set`, which asks for the current PIN first.
 
 ```
-omarchy-screentime --human status
-omarchy-screentime --human quiz --keep-going    # practice math problems in the terminal
-omarchy-screentime grant 15                     # give minutes as a parent, PIN via stdin
-omarchy-screentime history --days 7
-omarchy-screentime watch                        # NDJSON stream for the widget
+omarchy-screen-time --human status
+omarchy-screen-time --human quiz --keep-going    # practice math problems in the terminal
+omarchy-screen-time grant 15                     # give minutes as a parent, PIN via stdin
+omarchy-screen-time history --days 7
+omarchy-screen-time watch                        # NDJSON stream for the widget
 ```
 
 ## Two installs
 
-**Soft.** `bin/omarchy-screentime-service enable` sets the daemon up as a user service in the child's session. Everything lives under `~/.local/state/omarchy-screentime` and `~/.config/omarchy-screentime`. A child who knows `systemctl --user stop` can turn this off. For young children that is fine: it works like a kitchen timer you can see running.
+**Soft.** `bin/omarchy-screen-time-service enable` sets the daemon up as a user service in the child's session. Everything lives under `~/.local/state/omarchy-screen-time` and `~/.config/omarchy-screen-time`. A child who knows `systemctl --user stop` can turn this off. For young children that is fine: it works like a kitchen timer you can see running.
 
-**Strict.** As soon as `/etc/omarchy-screentime/` exists, the same daemon runs as root, with the state in `/var/lib/omarchy-screentime/` and the socket in `/run/omarchy-screentime/`. The child cannot write the files and cannot stop the unit. The install script for this is still to come.
+**Strict.** As soon as `/etc/omarchy-screen-time/` exists, the same daemon runs as root, with the state in `/var/lib/omarchy-screen-time/` and the socket in `/run/omarchy-screen-time/`. The child cannot write the files and cannot stop the unit. The install script for this is still to come.
 
-The daemon itself does not know which mode it runs in: `screentime/paths.py` decides that once, and no path is built anywhere else in the code.
+The daemon itself does not know which mode it runs in: `screen_time/paths.py` decides that once, and no path is built anywhere else in the code.
 
 ## How time is counted
 
@@ -40,8 +40,8 @@ If you want it more precise, let hypridle join in. Two lines in `hypr/hypridle.c
 ```
 listener {
     timeout = 120
-    on-timeout = omarchy-screentime idle on
-    on-resume = omarchy-screentime idle off
+    on-timeout = omarchy-screen-time idle on
+    on-resume = omarchy-screen-time idle off
 }
 ```
 
@@ -94,7 +94,7 @@ python3 tests/test_core.py
 
 Runs without a daemon and without a desktop. Covers the clock that refuses to go back, the writes that do not follow a symlink, the config that clamps everything, and the math problems.
 
-For a test with a real daemon: point `SCREENTIME_ROOT` at an empty directory, set `SCREENTIME_TICK_SECONDS=1` and point `SCREENTIME_LOCK_COMMAND` at a script that only writes a line. Then you can walk the whole flow up to and including the lock without locking yourself out.
+For a test with a real daemon: point `SCREEN_TIME_ROOT` at an empty directory, set `SCREEN_TIME_TICK_SECONDS=1` and point `SCREEN_TIME_LOCK_COMMAND` at a script that only writes a line. Then you can walk the whole flow up to and including the lock without locking yourself out.
 
 ## What comes next
 

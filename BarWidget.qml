@@ -10,10 +10,10 @@ import qs.Commons
 // time with fixed choices.
 Panel {
   id: root
-  moduleName: "jankeesvw.screentime"
-  ipcTarget: "jankeesvw.screentime"
+  moduleName: "jankeesvw.screen-time"
+  ipcTarget: "jankeesvw.screen-time"
 
-  readonly property var service: bar && bar.shell ? bar.shell.serviceFor("jankeesvw.screentime") : null
+  readonly property var service: bar && bar.shell ? bar.shell.serviceFor("jankeesvw.screen-time") : null
   readonly property bool connected: service ? service.connected === true : false
   readonly property string phase: service ? String(service.phase) : ""
   readonly property int remaining: service ? service.remainingSeconds : 0
@@ -78,7 +78,7 @@ Panel {
   readonly property string label: blockedPhase ? (phase === "bedtime" ? "bedtime" : "0:00") : fmt(remaining)
 
   readonly property string clientPath:
-    Qt.resolvedUrl("bin/omarchy-screentime").toString().replace(/^file:\/\//, "")
+    Qt.resolvedUrl("bin/omarchy-screen-time").toString().replace(/^file:\/\//, "")
 
   // --- quiz state -----------------------------------------------------
 

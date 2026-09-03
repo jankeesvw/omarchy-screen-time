@@ -1,12 +1,12 @@
 [Unit]
-Description=Screentime screen time daemon (system wide)
-Documentation=https://github.com/jankeesvw/omarchy-screentime
+Description=Screen Time daemon (system wide)
+Documentation=https://github.com/jankeesvw/omarchy-screen-time
 After=systemd-logind.service
 Wants=systemd-logind.service
 
 [Service]
 Type=simple
-ExecStart=@BINDIR@/omarchy-screentimed
+ExecStart=@BINDIR@/omarchy-screen-timed
 Restart=always
 RestartSec=2
 KillSignal=SIGTERM
@@ -16,10 +16,10 @@ TimeoutStopSec=10
 # the sandboxing stays modest on purpose.
 PrivateTmp=yes
 ProtectSystem=strict
-ReadWritePaths=/var/lib/omarchy-screentime /run/omarchy-screentime
-RuntimeDirectory=omarchy-screentime
+ReadWritePaths=/var/lib/omarchy-screen-time /run/omarchy-screen-time
+RuntimeDirectory=omarchy-screen-time
 RuntimeDirectoryMode=0755
-StateDirectory=omarchy-screentime
+StateDirectory=omarchy-screen-time
 StateDirectoryMode=0700
 
 [Install]

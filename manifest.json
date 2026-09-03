@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "id": "jankeesvw.screentime",
-  "name": "Screentime",
+  "id": "jankeesvw.screen-time",
+  "name": "Screen Time",
   "version": "0.1.0",
   "author": "Jankees van Woezik",
-  "description": "Screen time for kids: a minute budget that visibly ticks down, locks the screen at zero, and lets extra minutes be earned with math problems.",
+  "description": "Screen Time for kids: a minute budget that visibly ticks down, locks the screen at zero, and lets extra minutes be earned with math problems.",
   "kinds": ["service", "bar-widget", "panel"],
   "keepLoaded": true,
   "entryPoints": {
@@ -13,7 +13,7 @@
     "panel": "Countdown.qml"
   },
   "barWidget": {
-    "displayName": "Screentime",
+    "displayName": "Screen Time",
     "description": "The remaining screen time for today.",
     "category": "System",
     "allowMultiple": false,

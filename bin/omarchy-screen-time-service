@@ -9,24 +9,24 @@ set -euo pipefail
 
 here="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pwd)"
 unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-unit="$unit_dir/omarchy-screentime.service"
+unit="$unit_dir/omarchy-screen-time.service"
 
 case "${1:-status}" in
   enable)
     mkdir -p -- "$unit_dir"
-    sed "s|@BINDIR@|$here|g" -- "$here/../systemd/omarchy-screentime.service" > "$unit"
+    sed "s|@BINDIR@|$here|g" -- "$here/../systemd/omarchy-screen-time.service" > "$unit"
     systemctl --user daemon-reload
-    systemctl --user enable --now omarchy-screentime.service
-    systemctl --user --no-pager status omarchy-screentime.service || true
+    systemctl --user enable --now omarchy-screen-time.service
+    systemctl --user --no-pager status omarchy-screen-time.service || true
     ;;
   disable)
-    systemctl --user disable --now omarchy-screentime.service || true
+    systemctl --user disable --now omarchy-screen-time.service || true
     rm -f -- "$unit"
     systemctl --user daemon-reload
-    echo "disabled. the days and the statistics remain in ${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-screentime"
+    echo "disabled. the days and the statistics remain in ${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-screen-time"
     ;;
   status)
-    systemctl --user --no-pager status omarchy-screentime.service || true
+    systemctl --user --no-pager status omarchy-screen-time.service || true
     ;;
   *)
     echo "usage: $(basename -- "$0") enable|disable|status" >&2

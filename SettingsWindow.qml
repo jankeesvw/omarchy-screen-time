@@ -111,7 +111,7 @@ Item {
   FloatingWindow {
     id: win
     visible: false
-    title: "Screentime settings"
+    title: "Screen Time settings"
     color: Color.background
     implicitWidth: 520
     implicitHeight: 640
@@ -314,7 +314,7 @@ Item {
 
         Text {
           textFormat: Text.PlainText
-          text: "The PIN is changed on the command line: omarchy-screentime pin set (it asks for the current PIN first)."
+          text: "The PIN is changed on the command line: omarchy-screen-time pin set (it asks for the current PIN first)."
           width: parent.width
           wrapMode: Text.WordWrap
           color: root.fadeText(0.5)

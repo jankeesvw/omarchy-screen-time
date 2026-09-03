@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
-"""Screentime daemon."""
+"""Screen Time daemon."""
 
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
-from screentime import paths
-from screentime.daemon import Daemon
+from screen_time import paths
+from screen_time.daemon import Daemon
 
 
 def log(message):
-    print(f"screentime: {message}", file=sys.stderr, flush=True)
+    print(f"screen-time: {message}", file=sys.stderr, flush=True)
 
 
 def main():
     layout = paths.detect()
     log(f"starting in {layout.mode} mode")
-    tick = float(os.environ.get("SCREENTIME_TICK_SECONDS", "5"))
+    tick = float(os.environ.get("SCREEN_TIME_TICK_SECONDS", "5"))
     Daemon(layout, tick_seconds=tick, log=log).run()
     return 0
 

@@ -183,7 +183,7 @@ def cmd_pin_set(args):
 
 
 def build_parser():
-    parser = argparse.ArgumentParser(prog="omarchy-screentime", description="Screentime screen time")
+    parser = argparse.ArgumentParser(prog="omarchy-screen-time", description="Screen Time for kids")
     parser.add_argument("--human", action="store_true", help="readable output instead of json")
     parser.add_argument("--pin-stdin", action="store_true", help="read the PIN from stdin")
     sub = parser.add_subparsers(dest="command", required=True)

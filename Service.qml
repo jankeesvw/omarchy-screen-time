@@ -2,7 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// The single connection to the screentime daemon. The bar widget and the
+// The single connection to the screen_time daemon. The bar widget and the
 // countdown window both read their state from here, so there is one stream
 // and everything shows the same numbers.
 Item {
@@ -46,7 +46,7 @@ Item {
   }
 
   readonly property string clientPath:
-    Qt.resolvedUrl("bin/omarchy-screentime").toString().replace(/^file:\/\//, "")
+    Qt.resolvedUrl("bin/omarchy-screen-time").toString().replace(/^file:\/\//, "")
 
   function applyEvent(event) {
     if (!event || event.ok !== true) {

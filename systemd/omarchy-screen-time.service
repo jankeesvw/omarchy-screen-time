@@ -1,12 +1,12 @@
 [Unit]
-Description=Screentime screen time daemon
-Documentation=https://github.com/jankeesvw/omarchy-screentime
+Description=Screen Time daemon
+Documentation=https://github.com/jankeesvw/omarchy-screen-time
 PartOf=graphical-session.target
 After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=@BINDIR@/omarchy-screentimed
+ExecStart=@BINDIR@/omarchy-screen-timed
 Restart=always
 RestartSec=2
 # The daemon must survive being told to go away, or the budget goes with it.

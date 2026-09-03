@@ -32,7 +32,7 @@ def section(title):
 # --- the clock ---------------------------------------------------------
 
 def test_clock():
-    from screentime import clock
+    from screen_time import clock
 
     section("clock")
     c = clock.Clock()
@@ -73,7 +73,7 @@ def test_clock():
 # --- private files -----------------------------------------------------
 
 def test_paths():
-    from screentime import paths
+    from screen_time import paths
 
     section("private files")
     base = tempfile.mkdtemp()
@@ -110,7 +110,7 @@ def test_paths():
 # --- config ------------------------------------------------------------
 
 def test_config():
-    from screentime import config
+    from screen_time import config
 
     section("config")
     cfg = config.sanitize({
@@ -148,7 +148,7 @@ def test_config():
 
 def test_quiz():
     import random
-    from screentime import config, quiz
+    from screen_time import config, quiz
 
     section("quiz")
     earn = config.sanitize_earn({"ops": ["mul", "div"], "tables": [6, 7], "min_answer_seconds": 1.5})
@@ -185,12 +185,12 @@ def test_quiz():
 # --- day state ---------------------------------------------------------
 
 def test_state():
-    from screentime import paths, state
+    from screen_time import paths, state
 
     section("ledger")
     base = tempfile.mkdtemp()
     try:
-        os.environ["SCREENTIME_ROOT"] = base
+        os.environ["SCREEN_TIME_ROOT"] = base
         layout = paths.detect()
         store = state.Store(layout, os.getuid())
         today = state.day_key(time.time())
@@ -214,14 +214,14 @@ def test_state():
         store.save_day(old)
         check("history returns newest first", [d["day"] for d in store.history(5)] == [today, yesterday])
     finally:
-        os.environ.pop("SCREENTIME_ROOT", None)
+        os.environ.pop("SCREEN_TIME_ROOT", None)
         shutil.rmtree(base, ignore_errors=True)
 
 
 # --- bedtime and enforcement decisions ---------------------------------
 
 def test_bedtime():
-    from screentime import config, daemon
+    from screen_time import config, daemon
 
     section("bedtime")
 

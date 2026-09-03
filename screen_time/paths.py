@@ -2,8 +2,8 @@
 
 Three layouts, resolved in this order:
 
-  test    SCREENTIME_ROOT is set, everything below it. Used by the test runner.
-  system  /etc/omarchy-screentime exists, so the strict install is in place:
+  test    SCREEN_TIME_ROOT is set, everything below it. Used by the test runner.
+  system  /etc/omarchy-screen-time exists, so the strict install is in place:
           root owns the state and the child account cannot write it.
   user    the soft install: everything under the user's own XDG directories.
 
@@ -17,7 +17,7 @@ import stat
 import tempfile
 from pathlib import Path
 
-APP = "omarchy-screentime"
+APP = "omarchy-screen-time"
 
 SYSTEM_CONFIG_DIR = Path("/etc") / APP
 SYSTEM_STATE_DIR = Path("/var/lib") / APP
@@ -56,7 +56,7 @@ def _xdg(name, fallback):
 
 def detect(root=None):
     """Pick the layout for this process."""
-    root = root or os.environ.get("SCREENTIME_ROOT")
+    root = root or os.environ.get("SCREEN_TIME_ROOT")
     if root:
         base = Path(root)
         return Layout("test", base / "config.json", base / "state", base / "sock")
@@ -80,7 +80,7 @@ def detect(root=None):
 
 def client_socket_candidates():
     """Sockets a client should try, most specific first."""
-    root = os.environ.get("SCREENTIME_ROOT")
+    root = os.environ.get("SCREEN_TIME_ROOT")
     if root:
         return [Path(root) / "sock"]
     home = Path.home()

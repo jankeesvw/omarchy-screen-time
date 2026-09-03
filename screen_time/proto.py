@@ -78,7 +78,7 @@ def connect(candidates, timeout=5):
             return sock
         except OSError as exc:
             last = exc
-    raise ConnectionError(str(last) if last else "no screentime daemon is listening")
+    raise ConnectionError(str(last) if last else "no screen_time daemon is listening")
 
 
 def request(candidates, payload, timeout=5):

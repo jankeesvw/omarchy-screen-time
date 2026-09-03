@@ -147,9 +147,9 @@ def shell_locked(uid):
 
 
 def notify(uid, title, body, urgency="normal", tag=None):
-    argv = ["notify-send", "-a", "Screentime", "-u", urgency]
+    argv = ["notify-send", "-a", "Screen Time", "-u", urgency]
     if tag:
-        argv += ["-h", f"string:x-canonical-private-synchronous:screentime-{tag}"]
+        argv += ["-h", f"string:x-canonical-private-synchronous:screen-time-{tag}"]
     argv += [str(title), str(body)]
     return _as_user(uid, argv) is not None
 
@@ -157,12 +157,12 @@ def notify(uid, title, body, urgency="normal", tag=None):
 def lock(uid, session_id=None):
     """Lock the account's screen. Returns the command that did it, or None.
 
-    SCREENTIME_LOCK_COMMAND replaces the whole search, which is how the test
+    SCREEN_TIME_LOCK_COMMAND replaces the whole search, which is how the test
     suite proves the lock path without locking the tester out of their own
     screen. It is a program name or path, never a shell string, so nothing in
     it can be split into extra arguments.
     """
-    override = os.environ.get("SCREENTIME_LOCK_COMMAND")
+    override = os.environ.get("SCREEN_TIME_LOCK_COMMAND")
     if override:
         result = _as_user(uid, [override], timeout=10)
         if result is not None and result.returncode == 0:
