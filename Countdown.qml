@@ -35,9 +35,11 @@ Item {
   }
 
   readonly property string caption: {
-    if (graceToLock) return phase === "bedtime"
-      ? "It's bedtime. The screen is about to lock."
-      : "Time is up. The screen is about to lock."
+    if (graceToLock) {
+      if (phase !== "bedtime") return "Time is up. The screen is about to lock."
+      var label = service ? String(service.blockedLabel || "").trim() : ""
+      return (label === "" ? "Blocked" : label) + ". The screen is about to lock."
+    }
     return "screen time left"
   }
 

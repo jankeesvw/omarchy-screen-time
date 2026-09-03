@@ -226,21 +226,29 @@ def test_state():
         shutil.rmtree(base, ignore_errors=True)
 
 
-# --- bedtime and enforcement decisions ---------------------------------
+# --- blocked periods and enforcement decisions -------------------------
 
-def test_bedtime():
+def test_blocked_periods():
     from screen_time import config, daemon
 
-    section("bedtime")
+    section("blocked periods")
 
     class Fake:
-        in_bedtime = daemon.Account.in_bedtime
+        _covers = staticmethod(daemon.Account._covers)
+        blocking_period = daemon.Account.blocking_period
+        next_period = daemon.Account.next_period
+
+    def fake_with(periods):
+        fake = Fake()
+        fake.profile = {"blocked_periods": periods}
+        return fake
+
+    def one(start, end, enabled=True):
+        return [{"label": "Bedtime", "enabled": enabled, "start": start, "end": end}]
 
     def at(hour, minute, start, end):
-        fake = Fake()
-        fake.profile = {"bedtime": {"enabled": True, "start": start, "end": end}}
         moment = datetime(2026, 9, 2, hour, minute).timestamp()
-        return fake.in_bedtime(moment)
+        return fake_with(one(start, end)).blocking_period(moment) is not None
 
     check("before bedtime is allowed", not at(19, 59, "20:00", "07:00"))
     check("bedtime blocks the evening", at(20, 0, "20:00", "07:00"))
@@ -249,6 +257,42 @@ def test_bedtime():
     check("a window inside one day works", at(13, 30, "13:00", "15:00"))
     check("outside that window is allowed", not at(15, 30, "13:00", "15:00"))
 
+    moment = datetime(2026, 9, 2, 21, 0).timestamp()
+    check("a disabled period blocks nothing",
+          fake_with(one("20:00", "07:00", enabled=False)).blocking_period(moment) is None)
+
+    several = [
+        {"label": "School", "enabled": True, "start": "08:30", "end": "15:00"},
+        {"label": "Dinner", "enabled": True, "start": "18:00", "end": "18:45"},
+        {"label": "Bedtime", "enabled": True, "start": "20:00", "end": "07:00"},
+    ]
+
+    def which(hour, minute):
+        moment = datetime(2026, 9, 2, hour, minute).timestamp()
+        found = fake_with(several).blocking_period(moment)
+        return found["label"] if found else None
+
+    check("school hours block the morning", which(9, 0) == "School")
+    check("the gap after school is free", which(16, 0) is None)
+    check("dinner blocks its own window", which(18, 30) == "Dinner")
+    check("bedtime still blocks the night", which(3, 0) == "Bedtime")
+
+    def upcoming(hour, minute):
+        moment = datetime(2026, 9, 2, hour, minute).timestamp()
+        return fake_with(several).next_period(moment)["label"]
+
+    check("the next period is the one after now", upcoming(16, 0) == "Dinner")
+    check("after the last one it wraps to tomorrow", upcoming(21, 0) == "School")
+
+    # the config side: an old profile keeps its evening
+    migrated = config.sanitize_profile({"bedtime": {"enabled": True, "start": "21:00", "end": "06:30"}})
+    check("an old bedtime migrates into the list",
+          migrated["blocked_periods"] == [{"label": "Bedtime", "enabled": True,
+                                           "start": "21:00", "end": "06:30"}])
+    empty_window = config.sanitize_profile({"blocked_periods": [
+        {"label": "Nope", "enabled": True, "start": "10:00", "end": "10:00"}]})
+    check("a window with no width is dropped", empty_window["blocked_periods"] == [])
+
 
 def main():
     test_clock()
@@ -256,7 +300,7 @@ def main():
     test_config()
     test_quiz()
     test_state()
-    test_bedtime()
+    test_blocked_periods()
     print()
     if FAILURES:
         print(f"{len(FAILURES)} failed: {', '.join(FAILURES)}")

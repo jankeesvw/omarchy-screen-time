@@ -22,9 +22,9 @@ Both live in the same plugin and you switch per child, so a family can start str
 The plugin itself ships three components from one manifest, and they share a single connection to the daemon:
 
 - **Service.qml** (`keepLoaded`) holds the one `omarchy-screen-time watch` stream and is where the state lives. It keeps counting down locally between daemon ticks, so the last minutes read as a clock.
-- **BarWidget.qml** is the pill in the bar plus the panel behind it. The pill shows a glyph for the phase (hourglass, clock when idle, pause, lock, moon for bedtime) and the time that is left; it warns in amber below the last warning threshold and turns red when the time is up. Click it and the panel opens: the child answers math problems to earn minutes right there, and a parent unlocks fixed choices (+15, +30, +60, -15, pause) with the PIN. The PIN goes to the daemon over stdin, never as an argument, and is forgotten when the panel closes.
+- **BarWidget.qml** is the pill in the bar plus the panel behind it. The pill shows a glyph for the phase (hourglass, clock when idle, pause, lock, moon for bedtime) and the time that is left; it warns in amber below the last warning threshold and turns red when the time is up. Click it and the panel opens: the child answers math problems to earn minutes right there, and a parent unlocks fixed choices (+15, +60, -15, pause) with the PIN. The PIN goes to the daemon over stdin, never as an argument, and is forgotten when the panel closes.
 - **Countdown.qml** is a small card at the bottom of the screen that appears once the time drops below five minutes, and during the grace period counts down to the lock. It takes no input and never blocks a click.
-- **SettingsWindow.qml** is the parent's settings in a floating window of its own, opened from the panel after the PIN unlock: minutes per weekday, bedtime, and the earning knobs (on or off, division problems, which tables, the reward, the daily cap). Every change is a partial `config patch` to the daemon and applies immediately. Changing the PIN itself stays on the command line: `omarchy-screen-time pin set`, which asks for the current PIN first.
+- **SettingsWindow.qml** is the parent's settings in a floating window of its own, opened from the panel after the PIN unlock: minutes per weekday, the blocked periods, and the earning knobs (on or off, division problems, which tables, the reward, the daily cap). Every change is a partial `config patch` to the daemon and applies immediately. Changing the PIN itself stays on the command line: `omarchy-screen-time pin set`, which asks for the current PIN first.
 
 ```
 omarchy-screen-time --human status
@@ -89,7 +89,11 @@ One file, with a profile per child. The daemon clamps every value on read: a bud
     "sam": {
       "name": "Sam",
       "budget_minutes": {"mon": 60, "tue": 60, "wed": 90, "thu": 60, "fri": 90, "sat": 120, "sun": 120},
-      "bedtime": {"enabled": true, "start": "20:00", "end": "07:00"},
+      "blocked_periods": [
+        {"label": "School", "enabled": true, "start": "08:30", "end": "15:00"},
+        {"label": "Dinner", "enabled": true, "start": "18:00", "end": "18:45"},
+        {"label": "Bedtime", "enabled": true, "start": "20:00", "end": "07:00"}
+      ],
       "warn_minutes": [15, 5, 1],
       "on_empty": "lock",
       "grace_seconds": 60,
@@ -106,6 +110,8 @@ One file, with a profile per child. The daemon clamps every value on read: a bud
   }
 }
 ```
+
+A day can be blocked more than once, so `blocked_periods` is a list and bedtime is simply the entry every family starts with. Each period has a label the panel uses in its own sentences, so dinner is announced as dinner. A period may run past midnight, which is the normal shape for a bedtime, and one that starts where it ends is dropped rather than kept as a rule that never fires. A profile written before this was a list carries a single `bedtime` object instead; it is migrated into the first period on read, so nothing has to be edited by hand.
 
 `grace_seconds` is the time between "your time is up" and the lock. `relock_seconds` is only a retry when the lock did not take. `unlock_grace_seconds` starts when somebody unlocks the screen while the budget is zero: only somebody holding the account password can do that, and on a child's machine that is you, so you get a calm window to hand out minutes instead of racing a countdown. In the soft install, where the child knows their own password, you set it low instead.
 

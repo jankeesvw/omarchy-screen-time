@@ -28,6 +28,13 @@ Item {
   readonly property var tables: service && service.earnTables ? service.earnTables : []
   readonly property bool together: service ? service.philosophy === "together" : false
 
+  // The list is held locally while the window is open, for the same reason
+  // the number fields are: the daemon streams a fresh array every second, and
+  // a live model would rebuild the rows under whoever is typing in one.
+  property var localPeriods: []
+  readonly property int periodLimit: 8
+  readonly property string iconClose: "\uf00d"
+
   readonly property var dayKeys: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
   readonly property var dayLabels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
@@ -59,13 +66,62 @@ Item {
       var field = dayRepeater.itemAt(i)
       if (field) field.value = Number(service.budgetMinutes[dayKeys[i]]) || 0
     }
-    startField.text = service.bedtime && service.bedtime.start ? String(service.bedtime.start) : "20:00"
-    endField.text = service.bedtime && service.bedtime.end ? String(service.bedtime.end) : "07:00"
+    localPeriods = clonePeriods()
     rewardField.value = service.earnSecondsPerCorrect
     capField.value = service.earnCapMinutes
     agreementField.text = String(service.agreementText || "")
     agreementMinutesField.value = service.agreementMinutes
     nudgeField.value = service.breakNudgeMinutes
+  }
+
+  function clonePeriods() {
+    var out = []
+    var source = service && service.blockedPeriods ? service.blockedPeriods : []
+    for (var i = 0; i < source.length; i++) {
+      out.push({ label: String(source[i].label || ""),
+                 enabled: source[i].enabled === true,
+                 start: String(source[i].start || ""),
+                 end: String(source[i].end || "") })
+    }
+    return out
+  }
+
+  // Every write sends the whole array: the daemon merges dicts but replaces
+  // lists, which is what you want here. A period that is gone is gone.
+  function writePeriods(list) {
+    localPeriods = list
+    patch({ "blocked_periods": list })
+  }
+
+  function setPeriod(index, key, value) {
+    var list = clonePeriodsFromLocal()
+    if (index < 0 || index >= list.length) return
+    if (list[index][key] === value) return
+    list[index][key] = value
+    writePeriods(list)
+  }
+
+  function clonePeriodsFromLocal() {
+    var out = []
+    for (var i = 0; i < localPeriods.length; i++) {
+      out.push({ label: localPeriods[i].label, enabled: localPeriods[i].enabled,
+                 start: localPeriods[i].start, end: localPeriods[i].end })
+    }
+    return out
+  }
+
+  function addPeriod() {
+    var list = clonePeriodsFromLocal()
+    if (list.length >= periodLimit) return
+    list.push({ label: "New period", enabled: true, start: "18:00", end: "18:45" })
+    writePeriods(list)
+  }
+
+  function removePeriod(index) {
+    var list = clonePeriodsFromLocal()
+    if (index < 0 || index >= list.length) return
+    list.splice(index, 1)
+    writePeriods(list)
   }
 
   function patch(obj) {
@@ -250,56 +306,119 @@ Item {
 
         PanelSeparator { width: parent.width; visible: !root.together }
 
-        // --- bedtime --------------------------------------------------
-        Row {
-          spacing: Style.space(10)
+        // --- blocked periods ------------------------------------------
+        // One window was too rigid: a day can need school hours, dinner and
+        // bedtime, so this is a list and bedtime is simply the first entry.
+        Column {
+          id: periodsColumn
+          width: parent.width
+          spacing: Style.space(12)
           visible: !root.together
-          Text {
-            textFormat: Text.PlainText
-            text: "Bedtime"
-            color: Color.foreground
-            font.family: Style.font.family
-            font.pixelSize: Style.font.body
-            anchors.verticalCenter: parent.verticalCenter
-          }
-          ToggleSwitch {
-            anchors.verticalCenter: parent.verticalCenter
-            checked: root.service && root.service.bedtime ? root.service.bedtime.enabled === true : false
-            onToggled: root.patch({ "bedtime": { "enabled": !(root.service && root.service.bedtime && root.service.bedtime.enabled === true) } })
-          }
-        }
 
-        Row {
-          spacing: Style.space(8)
-          visible: !root.together && (root.service && root.service.bedtime ? root.service.bedtime.enabled === true : false)
+          PanelSectionHeader {
+            text: "BLOCKED PERIODS"
+            foreground: Color.foreground
+          }
 
-          Text {
-            textFormat: Text.PlainText
-            text: "from"
-            color: root.fadeText(0.4)
-            font.family: Style.font.family
-            font.pixelSize: Style.font.body
-            anchors.verticalCenter: parent.verticalCenter
+          Repeater {
+            model: root.localPeriods
+
+            delegate: Column {
+              id: periodRow
+              required property var modelData
+              required property int index
+              width: periodsColumn.width
+              spacing: Style.space(6)
+
+              Row {
+                id: periodTop
+                width: parent.width
+                spacing: Style.space(8)
+
+                ToggleSwitch {
+                  id: periodToggle
+                  anchors.verticalCenter: parent.verticalCenter
+                  checked: periodRow.modelData.enabled === true
+                  onToggled: root.setPeriod(periodRow.index, "enabled",
+                                            !(periodRow.modelData.enabled === true))
+                }
+
+                TextField {
+                  width: periodTop.width - periodToggle.width - periodRemove.width
+                         - periodTop.spacing * 2
+                  text: String(periodRow.modelData.label || "")
+                  placeholderText: "what this period is"
+                  activeFocusOnTab: true
+                  onEditingFinished: root.setPeriod(periodRow.index, "label", text.trim())
+                }
+
+                PanelActionButton {
+                  id: periodRemove
+                  iconText: root.iconClose
+                  tooltipText: "Remove this period"
+                  foreground: Color.foreground
+                  hoverColor: root.errColor
+                  size: Style.space(22)
+                  focusable: true
+                  anchors.verticalCenter: parent.verticalCenter
+                  onClicked: root.removePeriod(periodRow.index)
+                }
+              }
+
+              Row {
+                spacing: Style.space(8)
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: "from"
+                  color: root.fadeText(0.4)
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.body
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+                TextField {
+                  width: Style.space(64)
+                  text: String(periodRow.modelData.start || "")
+                  activeFocusOnTab: true
+                  onEditingFinished: if (root.validTime(text)) root.setPeriod(periodRow.index, "start", text)
+                }
+                Text {
+                  textFormat: Text.PlainText
+                  text: "until"
+                  color: root.fadeText(0.4)
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.body
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+                TextField {
+                  width: Style.space(64)
+                  text: String(periodRow.modelData.end || "")
+                  activeFocusOnTab: true
+                  onEditingFinished: if (root.validTime(text)) root.setPeriod(periodRow.index, "end", text)
+                }
+              }
+            }
           }
-          TextField {
-            id: startField
-            width: Style.space(64)
-            activeFocusOnTab: true
-            onEditingFinished: if (root.validTime(text)) root.patch({ "bedtime": { "start": text } })
-          }
-          Text {
-            textFormat: Text.PlainText
-            text: "until"
-            color: root.fadeText(0.4)
-            font.family: Style.font.family
-            font.pixelSize: Style.font.body
-            anchors.verticalCenter: parent.verticalCenter
-          }
-          TextField {
-            id: endField
-            width: Style.space(64)
-            activeFocusOnTab: true
-            onEditingFinished: if (root.validTime(text)) root.patch({ "bedtime": { "end": text } })
+
+          Row {
+            spacing: Style.space(8)
+
+            Button {
+              text: "Add a period"
+              focusable: true
+              enabled: root.localPeriods.length < root.periodLimit
+              onClicked: root.addPeriod()
+            }
+
+            Text {
+              textFormat: Text.PlainText
+              visible: root.localPeriods.length === 0
+              text: "nothing is blocked yet"
+              color: root.fadeText(0.5)
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+              anchors.verticalCenter: parent.verticalCenter
+            }
           }
         }
 

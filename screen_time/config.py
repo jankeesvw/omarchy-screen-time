@@ -35,7 +35,11 @@ DEFAULT_PROFILE = {
     # just a shared agreement, gentle information, and the child's own notes.
     "philosophy": "limits",
     "budget_minutes": {"mon": 60, "tue": 60, "wed": 60, "thu": 60, "fri": 60, "sat": 90, "sun": 90},
-    "bedtime": {"enabled": False, "start": "20:00", "end": "07:00"},
+    # A day can be blocked more than once: school hours, dinner, bedtime.
+    # Bedtime is just the one every family starts with.
+    "blocked_periods": [
+        {"label": "Bedtime", "enabled": False, "start": "20:00", "end": "07:00"},
+    ],
     "warn_minutes": [15, 5, 1],
     "on_empty": "lock",
     "grace_seconds": 60,
@@ -104,6 +108,48 @@ def sanitize_earn(raw):
     }
 
 
+BLOCKED_PERIOD_LIMIT = 8
+
+
+def sanitize_blocked_periods(raw, legacy_bedtime=None):
+    """The blocked periods of one profile, oldest config shape included.
+
+    A profile written before there were several periods carries a single
+    `bedtime` object instead. It becomes the first period rather than being
+    dropped, so an existing family keeps their evening after an update.
+    """
+    default = DEFAULT_PROFILE["blocked_periods"]
+    if not isinstance(raw, list):
+        if isinstance(legacy_bedtime, dict):
+            raw = [{
+                "label": "Bedtime",
+                "enabled": bool(legacy_bedtime.get("enabled", False)),
+                "start": legacy_bedtime.get("start"),
+                "end": legacy_bedtime.get("end"),
+            }]
+        else:
+            raw = default
+
+    out = []
+    for entry in raw[:BLOCKED_PERIOD_LIMIT]:
+        if not isinstance(entry, dict):
+            continue
+        start = _time_of_day(entry.get("start"), default[0]["start"])
+        end = _time_of_day(entry.get("end"), default[0]["end"])
+        # A window that starts where it ends blocks nothing, and keeping it
+        # would let a typo look like a rule that simply never fires.
+        if start == end:
+            continue
+        label = str(entry.get("label", "")).strip()[:40] or "Blocked"
+        out.append({
+            "label": label,
+            "enabled": bool(entry.get("enabled", False)),
+            "start": start,
+            "end": end,
+        })
+    return out
+
+
 def sanitize_profile(raw):
     raw = raw if isinstance(raw, dict) else {}
     budget_raw = raw.get("budget_minutes")
@@ -112,13 +158,7 @@ def sanitize_profile(raw):
     for day in DAYS:
         budget[day] = _int(budget_raw.get(day), DEFAULT_PROFILE["budget_minutes"][day], 0, 1440)
 
-    bedtime_raw = raw.get("bedtime")
-    bedtime_raw = bedtime_raw if isinstance(bedtime_raw, dict) else {}
-    bedtime = {
-        "enabled": bool(bedtime_raw.get("enabled", False)),
-        "start": _time_of_day(bedtime_raw.get("start"), DEFAULT_PROFILE["bedtime"]["start"]),
-        "end": _time_of_day(bedtime_raw.get("end"), DEFAULT_PROFILE["bedtime"]["end"]),
-    }
+    blocked = sanitize_blocked_periods(raw.get("blocked_periods"), raw.get("bedtime"))
 
     warn = [_int(w, 0, 0, 1440) for w in raw.get("warn_minutes", DEFAULT_PROFILE["warn_minutes"])
             if isinstance(w, (int, float))]
@@ -141,7 +181,7 @@ def sanitize_profile(raw):
         "agreement_minutes": _int(raw.get("agreement_minutes"), DEFAULT_PROFILE["agreement_minutes"], 0, 1440),
         "break_nudge_minutes": _int(raw.get("break_nudge_minutes"), DEFAULT_PROFILE["break_nudge_minutes"], 0, 480),
         "budget_minutes": budget,
-        "bedtime": bedtime,
+        "blocked_periods": blocked,
         "warn_minutes": warn,
         "on_empty": on_empty,
         "grace_seconds": _int(raw.get("grace_seconds"), DEFAULT_PROFILE["grace_seconds"], 0, 3600),

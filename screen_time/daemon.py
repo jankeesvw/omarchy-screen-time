@@ -118,17 +118,39 @@ class Account:
 
     # gates --------------------------------------------------------------
 
-    def in_bedtime(self, now):
-        bedtime = self.profile["bedtime"]
-        if not bedtime["enabled"]:
-            return False
-        moment = datetime.fromtimestamp(now).strftime("%H:%M")
-        start, end = bedtime["start"], bedtime["end"]
+    @staticmethod
+    def _covers(period, moment):
+        start, end = period["start"], period["end"]
         if start == end:
             return False
         if start < end:
             return start <= moment < end
+        # Wraps past midnight, which is the normal shape for a bedtime.
         return moment >= start or moment < end
+
+    def blocking_period(self, now):
+        """The enabled period covering this moment, or None.
+
+        Returns the period itself rather than a bool, because the panel says
+        which one it is: "dinner" and "bedtime" are not the same sentence.
+        """
+        moment = datetime.fromtimestamp(now).strftime("%H:%M")
+        for period in self.profile["blocked_periods"]:
+            if period["enabled"] and self._covers(period, moment):
+                return period
+        return None
+
+    def next_period(self, now):
+        """The enabled period that starts next, for the line under the bar."""
+        moment = datetime.fromtimestamp(now).strftime("%H:%M")
+        upcoming = [p for p in self.profile["blocked_periods"] if p["enabled"]]
+        if not upcoming:
+            return None
+        later = [p for p in upcoming if p["start"] > moment]
+        if later:
+            return min(later, key=lambda p: p["start"])
+        # Nothing left today, so the first one tomorrow.
+        return min(upcoming, key=lambda p: p["start"])
 
     @property
     def together(self):
@@ -137,7 +159,7 @@ class Account:
     def block_reason(self, now):
         if self.together:
             return None   # nothing blocks: the agreement is a conversation, not a gate
-        if self.in_bedtime(now):
+        if self.blocking_period(now) is not None:
             return "bedtime"
         if self.day.remaining <= 0:
             return "empty"
@@ -242,7 +264,7 @@ class Account:
             self.save()
             if self.profile["on_empty"] == "notify":
                 session.notify(self.uid, "Time's up",
-                               "Today's screen time is used up." if reason == "empty" else "It's bedtime.",
+                               self.blocked_headline(now, reason),
                                urgency="critical", tag="empty")
 
         if self.profile["on_empty"] != "lock":
@@ -256,7 +278,7 @@ class Account:
         delay, kind = self.lock_delay()
         if self.lock_after is None:
             self.lock_after = now + delay
-            headline = "Today's screen time is used up." if reason == "empty" else "It's bedtime."
+            headline = self.blocked_headline(now, reason)
             if kind == "after_unlock":
                 headline = "There is no time yet."
             session.notify(self.uid, "Time's up",
@@ -355,6 +377,14 @@ class Account:
         })
         return verdict
 
+    def blocked_headline(self, now, reason):
+        """What to call the block in a notification, in the family's words."""
+        if reason == "empty":
+            return "Today's screen time is used up."
+        period = self.blocking_period(now)
+        label = period["label"].strip().lower() if period else "a quiet time"
+        return f"It is {label}."
+
     # status -------------------------------------------------------------
 
     def status(self, now):
@@ -395,7 +425,9 @@ class Account:
             "session_present": self.watcher.present,
             "lock_in_seconds": (max(0, int(self.lock_after - now))
                                 if self.lock_after and reason and not self.paused else None),
-            "bedtime": self.profile["bedtime"],
+            "blocked_periods": self.profile["blocked_periods"],
+            "blocked_label": (self.blocking_period(now) or {}).get("label", ""),
+            "next_block": self.next_period(now),
             "budget_minutes": dict(self.profile["budget_minutes"]),
             "on_empty": self.profile["on_empty"],
             "earn": {
@@ -457,7 +489,13 @@ DEMO_STATUS = {
     "locked": False,
     "session_present": True,
     "lock_in_seconds": None,
-    "bedtime": {"enabled": True, "start": "20:00", "end": "07:00"},
+    "blocked_periods": [
+        {"label": "School", "enabled": True, "start": "08:30", "end": "15:00"},
+        {"label": "Dinner", "enabled": True, "start": "18:00", "end": "18:45"},
+        {"label": "Bedtime", "enabled": True, "start": "20:00", "end": "07:00"},
+    ],
+    "blocked_label": "",
+    "next_block": {"label": "Dinner", "enabled": True, "start": "18:00", "end": "18:45"},
     "on_empty": "lock",
     "earn": {
         "enabled": True,

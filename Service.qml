@@ -28,7 +28,9 @@ Item {
   property int earnCapMinutes: 0
   property int earnSecondsPerCorrect: 30
   property var budgetMinutes: ({})   // {mon: 60, ...}
-  property var bedtime: ({})         // {enabled, start, end}
+  property var blockedPeriods: []    // [{label, enabled, start, end}]
+  property string blockedLabel: ""   // the period blocking right now, if any
+  property var nextBlock: null       // the next one that starts, for the panel
   property string philosophy: "limits"
   property string agreementText: ""
   property int agreementMinutes: 0
@@ -83,7 +85,9 @@ Item {
     earnCapMinutes = Math.round((Number(earn.cap_seconds) || 0) / 60)
     earnSecondsPerCorrect = Number(earn.seconds_per_correct) || 30
     budgetMinutes = event.budget_minutes || {}
-    bedtime = event.bedtime || {}
+    blockedPeriods = event.blocked_periods || []
+    blockedLabel = String(event.blocked_label || "")
+    nextBlock = event.next_block || null
     philosophy = String(event.philosophy || "limits")
     agreementText = String(event.agreement_text || "")
     agreementMinutes = Number(event.agreement_minutes) || 0

@@ -96,7 +96,7 @@ Panel {
 
   readonly property string label: {
     if (together) return fmt(service ? service.spentSeconds : 0)
-    if (blockedPhase) return phase === "bedtime" ? "bedtime" : "0:00"
+    if (blockedPhase) return phase === "bedtime" ? blockedName : "0:00"
     return fmt(remaining)
   }
 
@@ -121,10 +121,17 @@ Panel {
   readonly property string stateLine: {
     if (!service) return ""
     if (phase === "empty") return "time is up"
-    if (phase === "bedtime") return "bedtime"
+    if (phase === "bedtime") return blockedName
     if (phase === "paused") return "paused by a parent"
     if (phase === "idle") return "idle, not counting"
     return "counting down"
+  }
+
+  // What to call the block that is on right now. The daemon names the period
+  // the family wrote, so dinner does not get announced as bedtime.
+  readonly property string blockedName: {
+    var name = service ? plain(String(service.blockedLabel || "")).trim() : ""
+    return name === "" ? "blocked" : name.toLowerCase()
   }
 
   // A fresh config names the profile "Default", which is nobody, and that is
@@ -147,9 +154,9 @@ Panel {
         return "about " + fmt(service.agreementMinutes * 60) + " agreed"
       return ""
     }
-    var bed = service.bedtime
-    if (!bed || bed.enabled !== true || !bed.start) return ""
-    return "bedtime at " + plain(String(bed.start))
+    var next = service.nextBlock
+    if (!next || !next.start) return ""
+    return plain(String(next.label)).toLowerCase() + " at " + plain(String(next.start))
   }
 
   // The day in even cells, so the eye can compare them instead of reading a
@@ -565,7 +572,7 @@ Panel {
           title: root.heroTitle
           detail: {
             if (root.together) return root.fmt(root.service ? root.service.spentSeconds : 0) + " today"
-            if (root.blockedPhase) return root.phase === "bedtime" ? "bedtime" : "time's up"
+            if (root.blockedPhase) return root.phase === "bedtime" ? root.blockedName : "time's up"
             return root.fmt(root.remaining) + " left"
           }
           // One line, so one fact at a time: the hero meta elides rather than
@@ -591,21 +598,45 @@ Panel {
               font.pixelSize: Style.font.display
 
               // An hourglass that never turns is a drawing. Turning it over
-              // every twenty seconds is the panel saying the day is still
+              // every fifteen seconds is the panel saying the day is still
               // running, which is exactly when the glyph is an hourglass:
               // paused, idle and bedtime all draw something else.
+              // The glyph is close to symmetric top to bottom, so the turn
+              // itself is the whole effect: it lands looking the same. Hence
+              // the overshoot and the squash, and hence the first turn coming
+              // a second after the panel opens rather than only at the first
+              // fifteen second mark, which you would have to be lucky to see.
               property real flip: 0
               rotation: flip
+              transformOrigin: Item.Center
 
               Behavior on flip {
-                NumberAnimation { duration: 700; easing.type: Easing.InOutCubic }
+                NumberAnimation { duration: 900; easing.type: Easing.InOutBack }
+              }
+
+              SequentialAnimation {
+                id: flipSquash
+                NumberAnimation {
+                  target: heroIcon; property: "scale"
+                  to: 0.8; duration: 450; easing.type: Easing.OutQuad
+                }
+                NumberAnimation {
+                  target: heroIcon; property: "scale"
+                  to: 1.0; duration: 450; easing.type: Easing.OutBack
+                }
               }
 
               Timer {
-                interval: 20000
+                id: flipTimer
+                interval: 1200
                 repeat: true
                 running: root.opened && root.phase === "running"
-                onTriggered: heroIcon.flip += 180
+                onRunningChanged: if (running) interval = 1200
+                onTriggered: {
+                  heroIcon.flip += 180
+                  flipSquash.restart()
+                  interval = 15000
+                }
               }
             }
           }
