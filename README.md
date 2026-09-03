@@ -53,9 +53,9 @@ The question comes from the daemon and the answer is checked there. The client n
 
 Also: an answer within `min_answer_seconds` does not count, the same question cannot pay out twice, there is a daily cap on the bonus, and tables that go wrong more often come around more often.
 
-## The together mode
+## The agreement mode
 
-Set `"philosophy": "together"` on a profile and the plugin changes character, along the lines of Alfie Kohn's argument against rewards and control: working with the child instead of doing things to them.
+Set `"philosophy": "together"` on a profile (shown as "Agreement" in the settings window) and the plugin changes character, along the lines of Alfie Kohn's argument against rewards and control: working with the child instead of doing things to them.
 
 Nothing locks and nothing is earned. The widget becomes a mirror that shows time spent, in neutral colours, never counting down. Instead of a budget there is an agreement the family writes together, in the child's own words, shown in the panel; when the day passes the agreed time there is one calm notification stating the fact, and that is all. A break nudge (`break_nudge_minutes`) can point out an unbroken stretch, framed as self care rather than discipline.
 
