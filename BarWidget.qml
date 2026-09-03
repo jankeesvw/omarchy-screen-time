@@ -372,63 +372,42 @@ Panel {
         width: parent.width
         spacing: Style.space(10)
 
-        // header
-        Row {
-          id: headerRow
+        // header, in the shell's own hero shape: icon, name, the time as the
+        // detail pill, and one uppercase meta line underneath
+        PanelHero {
           width: parent.width
-          spacing: Style.space(8)
-
-          Text {
-            id: headerIcon
-            textFormat: Text.PlainText
-            text: root.icon
-            color: root.pillColor
-            font.family: Style.font.family
-            font.pixelSize: Style.font.title
-            anchors.verticalCenter: parent.verticalCenter
+          foreground: Color.popups.text
+          title: root.service ? root.plain(root.service.profileName) : ""
+          detail: {
+            if (root.together) return root.fmt(root.service ? root.service.spentSeconds : 0) + " today"
+            if (root.blockedPhase) return root.phase === "bedtime" ? "bedtime" : "time's up"
+            return root.fmt(root.remaining) + " left"
           }
-          Column {
-            width: headerRow.width - headerIcon.width - headerRow.spacing
-            spacing: Style.space(1)
-            Text {
-              textFormat: Text.PlainText
-              text: {
-                var name = root.service ? root.plain(root.service.profileName) : ""
-                if (root.together)
-                  return name + ": " + root.fmt(root.service ? root.service.spentSeconds : 0) + " today"
-                return name + ": " + root.fmt(root.remaining) + " left"
-              }
-              color: Color.popups.text
-              font.family: Style.font.family
-              font.bold: true
-              font.pixelSize: Style.font.body
+          meta: {
+            if (!root.service) return ""
+            if (root.together) {
+              var bits = []
+              if (root.service.agreementMinutes > 0)
+                bits.push("agreement: about " + root.fmt(root.service.agreementMinutes * 60))
+              if (root.service.stretchSeconds >= 600)
+                bits.push(root.fmt(root.service.stretchSeconds) + " without a break")
+              if (root.phase === "paused") bits = ["paused"].concat(bits)
+              return bits.join("  ·  ")
             }
+            var parts = [root.fmt(root.service.spentSeconds) + " used",
+                         root.fmt(root.service.budgetSeconds) + " budget"]
+            if (root.service.earnedSeconds > 0) parts.push(root.fmt(root.service.earnedSeconds) + " earned")
+            if (root.service.grantedSeconds !== 0) parts.push(Math.round(root.service.grantedSeconds / 60) + "m granted")
+            if (root.phase === "paused") parts = ["paused"].concat(parts)
+            return parts.join("  ·  ")
+          }
+          iconComponent: Component {
             Text {
               textFormat: Text.PlainText
-              text: {
-                if (!root.service) return ""
-                if (root.together) {
-                  var bits = []
-                  if (root.service.agreementMinutes > 0)
-                    bits.push("your agreement: about " + root.fmt(root.service.agreementMinutes * 60))
-                  if (root.service.stretchSeconds >= 600)
-                    bits.push(root.fmt(root.service.stretchSeconds) + " without a break")
-                  if (root.phase === "paused") bits = ["paused"].concat(bits)
-                  return bits.join("  ·  ")
-                }
-                var parts = [root.fmt(root.service.spentSeconds) + " used",
-                             root.fmt(root.service.budgetSeconds) + " budget"]
-                if (root.service.earnedSeconds > 0) parts.push(root.fmt(root.service.earnedSeconds) + " earned")
-                if (root.service.grantedSeconds !== 0) parts.push(Math.round(root.service.grantedSeconds / 60) + "m granted")
-                if (root.phase === "bedtime") parts = ["It's bedtime"].concat(parts)
-                if (root.phase === "paused") parts = ["paused"].concat(parts)
-                return parts.join("  ·  ")
-              }
-              width: parent.width
-              wrapMode: Text.WordWrap
-              color: root.fade(Color.popups.text, 0.45)
+              text: root.icon
+              color: root.pillColor
               font.family: Style.font.family
-              font.pixelSize: Style.font.caption
+              font.pixelSize: Style.font.display
             }
           }
         }
@@ -468,12 +447,9 @@ Panel {
           spacing: Style.space(6)
           visible: root.together
 
-          Text {
-            textFormat: Text.PlainText
+          PanelSectionHeader {
             text: "Our agreement"
-            color: root.fade(Color.popups.text, 0.45)
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
+            foreground: Color.popups.text
           }
 
           Text {
@@ -521,12 +497,9 @@ Panel {
           spacing: Style.space(6)
           visible: root.together
 
-          Text {
-            textFormat: Text.PlainText
+          PanelSectionHeader {
             text: "How is it going?"
-            color: root.fade(Color.popups.text, 0.45)
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
+            foreground: Color.popups.text
           }
 
           Row {
@@ -587,12 +560,9 @@ Panel {
           spacing: Style.space(6)
           visible: root.earnEnabled && !root.together
 
-          Text {
-            textFormat: Text.PlainText
+          PanelSectionHeader {
             text: "Earn minutes"
-            color: root.fade(Color.popups.text, 0.45)
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
+            foreground: Color.popups.text
           }
 
           Row {
@@ -672,12 +642,9 @@ Panel {
             spacing: Style.space(3)
             visible: root.earnEventsView.length > 0
 
-            Text {
-              textFormat: Text.PlainText
+            PanelSectionHeader {
               text: "Earned today  ·  " + root.fmt(root.service ? root.service.earnedSeconds : 0)
-              color: root.fade(Color.popups.text, 0.45)
-              font.family: Style.font.family
-              font.pixelSize: Style.font.caption
+              foreground: Color.popups.text
             }
 
             ListView {
@@ -722,12 +689,9 @@ Panel {
           spacing: Style.space(6)
           visible: !root.together
 
-          Text {
-            textFormat: Text.PlainText
+          PanelSectionHeader {
             text: "Parent"
-            color: root.fade(Color.popups.text, 0.45)
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
+            foreground: Color.popups.text
           }
 
           Row {

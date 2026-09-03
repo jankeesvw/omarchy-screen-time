@@ -145,12 +145,8 @@ Item {
         spacing: Style.space(14)
 
         // --- approach -------------------------------------------------
-        Text {
-          textFormat: Text.PlainText
+        PanelSectionHeader {
           text: "Approach"
-          color: root.fadeText(0.4)
-          font.family: Style.font.family
-          font.pixelSize: Style.font.caption
         }
 
         Row {
@@ -192,12 +188,8 @@ Item {
           spacing: Style.space(10)
           visible: root.together
 
-          Text {
-            textFormat: Text.PlainText
+          PanelSectionHeader {
             text: "The agreement, in your own words (write it together)"
-            color: root.fadeText(0.4)
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
           }
 
           TextField {
@@ -212,7 +204,7 @@ Item {
             spacing: Style.space(16)
             NumberField {
               id: agreementMinutesField
-              label: "About how many minutes (0 = no number)"
+              label: "Agreed minutes (0 = none)"
               from: 0
               to: 1440
               stepSize: 5
@@ -220,7 +212,7 @@ Item {
             }
             NumberField {
               id: nudgeField
-              label: "Break nudge after (minutes, 0 = off)"
+              label: "Break nudge (minutes, 0 = off)"
               from: 0
               to: 480
               stepSize: 5
@@ -230,13 +222,9 @@ Item {
         }
 
         // --- budget ---------------------------------------------------
-        Text {
-          textFormat: Text.PlainText
+        PanelSectionHeader {
           text: "Minutes per day"
           visible: !root.together
-          color: root.fadeText(0.4)
-          font.family: Style.font.family
-          font.pixelSize: Style.font.caption
         }
 
         Row {
@@ -358,12 +346,8 @@ Item {
             }
           }
 
-          Text {
-            textFormat: Text.PlainText
+          PanelSectionHeader {
             text: "Multiplication tables"
-            color: root.fadeText(0.4)
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
           }
 
           Row {
