@@ -119,6 +119,26 @@ The parent PIN is stored hashed (pbkdf2, 600k rounds) and never travels as a com
 
 No PIN is not the same as no lock. Until one is set, everything that hands out or takes away time is refused with `no_pin_set`, and the panel says so and takes the first PIN right there. Only two things work without one: setting that first PIN, and the demo switch. In demo mode the PIN is `1234`, because a drawer that opens on any number would be worse than no drawer at all, and every write behind it stays a no-op.
 
+## Removing it
+
+```bash
+omarchy plugin remove jankeesvw.screen-time
+```
+
+If you enabled the soft install, turn the service off first, or a unit is left pointing at a directory that is gone:
+
+```bash
+bin/omarchy-screen-time-service disable
+```
+
+That leaves the child's own record behind, and you should know what it is before you decide to keep it. The config, including the hashed parent PIN and the profiles, sits in `~/.config/omarchy-screen-time/`. The day by day history sits in `~/.local/state/omarchy-screen-time/`: minutes used per day, the questions that were answered and the ones that went wrong, and any notes the child wrote in agreement mode. None of it leaves the machine, and nothing is sent anywhere. To delete it as well:
+
+```bash
+rm -rf ~/.config/omarchy-screen-time ~/.local/state/omarchy-screen-time
+```
+
+In the strict install the same two live in `/etc/omarchy-screen-time/` and `/var/lib/omarchy-screen-time/`, and removing those needs root.
+
 ## Testing
 
 ```
