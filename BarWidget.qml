@@ -29,7 +29,10 @@ Panel {
   readonly property string iconClock: "\uf017"
   readonly property string iconPause: "\uf04c"
   readonly property string iconLock: "\uf023"
+  readonly property string iconUnlock: "\uf09c"
   readonly property string iconMoon: "\uf186"
+  readonly property string iconGear: "\uf013"
+  readonly property string iconClose: "\uf00d"
 
   readonly property string icon: {
     if (phase === "bedtime") return iconMoon
@@ -68,6 +71,9 @@ Panel {
     if (seconds >= 3600) {
       var h = Math.floor(seconds / 3600)
       var m = Math.floor((seconds % 3600) / 60)
+      // A whole hour is "1h", not "1h00". The zeroes only earn their place
+      // when there are minutes to read next to them.
+      if (m === 0) return h + "h"
       return h + "h" + (m < 10 ? "0" : "") + m
     }
     if (seconds >= 600) return Math.floor(seconds / 60) + "m"
@@ -77,6 +83,16 @@ Panel {
   }
 
   function plain(s) { return String(s || "").replace(/[<>]/g, "") }
+
+  // The wall clock time of a ledger entry, for the notes. Seconds since the
+  // epoch, and anything that is not a number gets no label rather than a
+  // wrong one.
+  function clockTime(t) {
+    var seconds = Number(t)
+    if (!isFinite(seconds) || seconds <= 0) return ""
+    var when = new Date(seconds * 1000)
+    return Qt.formatTime(when, "HH:mm")
+  }
 
   readonly property string label: {
     if (together) return fmt(service ? service.spentSeconds : 0)
@@ -97,6 +113,58 @@ Panel {
   property string feedback: ""
   property color feedbackColor: root.bar ? root.bar.barForeground : "white"
   readonly property bool earnEnabled: service ? service.earnEnabled === true : false
+
+  // --- what the head of the panel says --------------------------------
+
+  // One line under the name: what the clock is doing. The numbers moved to
+  // the stat row, so this says the thing a number cannot.
+  readonly property string stateLine: {
+    if (!service) return ""
+    if (phase === "empty") return "time is up"
+    if (phase === "bedtime") return "bedtime"
+    if (phase === "paused") return "paused by a parent"
+    if (phase === "idle") return "idle, not counting"
+    return "counting down"
+  }
+
+  // A fresh config names the profile "Default", which is nobody, and that is
+  // what ends up in the biggest text on the card. Until a family gives a
+  // child a name of their own, the panel says what it is instead.
+  readonly property string heroTitle: {
+    if (!service) return "Screen time"
+    var name = plain(service.profileName).trim()
+    return (name === "" || name === "Default") ? "Screen time" : name
+  }
+
+  // The line under the bar: what the bar itself cannot say. In limits mode
+  // that is when the day ends, in agreement mode what the family settled on.
+  // It lives here rather than in the hero's meta because the hero shouts its
+  // meta in capitals, and a sentence is not a label.
+  readonly property string underBarLine: {
+    if (!service) return ""
+    if (together) {
+      if (service.agreementMinutes > 0)
+        return "about " + fmt(service.agreementMinutes * 60) + " agreed"
+      return ""
+    }
+    var bed = service.bedtime
+    if (!bed || bed.enabled !== true || !bed.start) return ""
+    return "bedtime at " + plain(String(bed.start))
+  }
+
+  // The day in even cells, so the eye can compare them instead of reading a
+  // sentence. Earned and given only appear once they have something to say,
+  // which keeps a plain day a plain two-cell row.
+  readonly property var dayStats: {
+    if (!service || together) return []
+    var out = [{ label: "used", value: fmt(service.spentSeconds), accent: false }]
+    if (service.earnedSeconds > 0)
+      out.push({ label: "earned", value: fmt(service.earnedSeconds), accent: true })
+    if (service.grantedSeconds > 0)
+      out.push({ label: "given", value: fmt(service.grantedSeconds), accent: true })
+    out.push({ label: "budget", value: fmt(service.budgetSeconds), accent: false })
+    return out
+  }
 
   function fetchQuestion() {
     if (quizProc.running) return
@@ -151,15 +219,70 @@ Panel {
 
   property string parentPin: ""
   property bool parentUnlocked: false
+  // The first PIN, held only between the click and the daemon reading it
+  // off stdin. It never becomes a command line argument.
+  property string pendingNewPin: ""
+  // The daemon reports pin_set on its own schedule, so the panel remembers
+  // that it just set one rather than showing the empty state again for a
+  // tick.
+  property bool pinJustSet: false
+  // No stored PIN means no gate at all, so the drawer says so and offers to
+  // fix it instead of pretending to be locked.
+  readonly property bool pinMissing: connected && service !== null
+    && service.pinSet !== true && !pinJustSet
+
+  function setPin() {
+    if (pinSetProc.running) return
+    var pin = newPinField.text.trim()
+    var again = newPinAgainField.text.trim()
+    if (pin === "" || again === "") {
+      newPinField.forceActiveFocus()
+      return
+    }
+    if (pin !== again) {
+      parentNote = "The two entries do not match."
+      parentNoteColor = blockColor
+      return
+    }
+    if (!/^[0-9]{4,12}$/.test(pin)) {
+      parentNote = "A PIN is 4 to 12 digits."
+      parentNoteColor = blockColor
+      return
+    }
+    parentNote = ""
+    pendingNewPin = pin
+    pinSetProc.running = true
+  }
   property string parentNote: ""
   property color parentNoteColor: root.bar ? root.bar.barForeground : "white"
+  // Read off the note's own colour rather than tracked separately, so every
+  // place that reports a refusal turns the drawer red without remembering to.
+  readonly property bool parentError: parentNote !== ""
+    && Qt.colorEqual(parentNoteColor, root.blockColor)
 
-  function tryUnlock() {
+  // Takes the PIN rather than reading one field, because two drawers ask for
+  // it now: the parent controls in limits mode and revisiting the agreement.
+  function tryUnlock(pin) {
     if (unlockProc.running) return
-    var pin = pinField.text.trim()
+    pin = String(pin || "").trim()
     if (pin === "") return
     root.parentPin = pin
     unlockProc.running = true
+  }
+
+  // The drawer's colour says where you are before you read a word. In
+  // agreement mode a missing PIN is not something to flag: there is nothing
+  // to gate there, so the drawer stays quiet instead of warning.
+  function drawerColor(typed, flagMissingPin) {
+    if (parentError) return fade(blockColor, 0.84)
+    if (pinMissing) {
+      if (!flagMissingPin) return fade(Color.popups.text, 0.9)
+      return typed > 0 ? fade(Color.accent, Math.max(0.7, 0.88 - 0.045 * typed))
+                       : fade(warnColor, 0.88)
+    }
+    if (parentUnlocked) return fade(okColor, 0.84)
+    if (typed > 0) return fade(Color.accent, Math.max(0.7, 0.88 - 0.045 * typed))
+    return fade(Color.popups.text, 0.9)
   }
 
   function grant(minutes) {
@@ -182,8 +305,12 @@ Panel {
     parentUnlocked = false
     parentNote = ""
     feedback = ""
+    pendingNewPin = ""
+    pinJustSet = false
     pinField.text = ""
     answerField.text = ""
+    newPinField.text = ""
+    newPinAgainField.text = ""
   }
 
   onOpenedChanged: {
@@ -192,6 +319,14 @@ Panel {
     } else {
       resetPanel()
     }
+  }
+
+  function forgetNote(t) {
+    if (forgetProc.running) return
+    var stamp = Number(t)
+    if (!isFinite(stamp) || stamp <= 0) return
+    forgetProc.command = [root.clientPath, "forget", String(stamp)]
+    forgetProc.running = true
   }
 
   function submitReflection() {
@@ -239,6 +374,47 @@ Panel {
   }
 
   Process {
+    id: forgetProc
+    // The list redraws off the watch stream, so nothing to do here but read
+    // the answer and let a refusal be quiet: a note that would not go is
+    // still on screen, which is the whole message.
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var payload
+        try { payload = JSON.parse(text) } catch (e) { return }
+      }
+    }
+  }
+
+  Process {
+    id: pinSetProc
+    // The new PIN goes in over stdin, never as an argument: every argument
+    // of every process is readable by anybody on the machine.
+    command: [root.clientPath, "pin", "set"]
+    stdinEnabled: true
+    onStarted: write(root.pendingNewPin + "\n")
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var payload
+        try { payload = JSON.parse(text) } catch (e) { payload = null }
+        root.pendingNewPin = ""
+        newPinField.text = ""
+        newPinAgainField.text = ""
+        if (payload && payload.ok === true) {
+          root.pinJustSet = true
+          root.parentNote = "PIN set. The drawer is locked from now on."
+          root.parentNoteColor = root.okColor
+          pinField.forceActiveFocus()
+        } else {
+          root.parentNote = payload && payload.error === "pin_must_be_4_to_12_digits"
+            ? "A PIN is 4 to 12 digits." : "Could not set the PIN."
+          root.parentNoteColor = root.blockColor
+        }
+      }
+    }
+  }
+
+  Process {
     id: unlockProc
     command: [root.clientPath, "--pin-stdin", "config", "get"]
     stdinEnabled: true
@@ -272,8 +448,12 @@ Panel {
         var payload
         try { payload = JSON.parse(text) } catch (e) { return }
         if (payload.ok === true) {
-          root.parentNote = actionProc.pendingLabel
-          root.parentNoteColor = root.okColor
+          // The demo answers ok to every write and changes nothing, so say
+          // that rather than reporting minutes that were never handed out.
+          root.parentNote = payload.demo === true
+            ? "Demo mode, nothing changed." : actionProc.pendingLabel
+          root.parentNoteColor = payload.demo === true
+            ? root.fade(Color.popups.text, 0.3) : root.okColor
         } else if (payload.error === "pin_locked_out") {
           root.parentUnlocked = false
           root.parentNote = "Too many tries. Wait " + payload.retry_in_seconds + "s."
@@ -351,7 +531,8 @@ Panel {
     owner: root
     bar: root.bar
     open: root.opened
-    focusTarget: root.together ? reflectField : (root.earnEnabled ? answerField : pinField)
+    focusTarget: root.together ? reflectField
+      : (root.earnEnabled ? answerField : (root.pinMissing ? newPinField : pinField))
     // Agreement mode is nearly all prose, and prose reads better on a
     // narrower measure than a card full of controls.
     readonly property int desiredWidth: Style.space(root.together ? 280 : 330)
@@ -373,14 +554,15 @@ Panel {
       Column {
         id: content
         width: parent.width
-        spacing: Style.space(10)
+        // The shell's own rhythm: 14 between sections, 6 inside one.
+        spacing: Style.space(14)
 
         // header, in the shell's own hero shape: icon, name, the time as the
         // detail pill, and one uppercase meta line underneath
         PanelHero {
           width: parent.width
           foreground: Color.popups.text
-          title: root.service ? root.plain(root.service.profileName) : ""
+          title: root.heroTitle
           detail: {
             if (root.together) return root.fmt(root.service ? root.service.spentSeconds : 0) + " today"
             if (root.blockedPhase) return root.phase === "bedtime" ? "bedtime" : "time's up"
@@ -391,52 +573,196 @@ Panel {
           // the agreed time is also the progress bar's scale.
           meta: {
             if (!root.service) return ""
-            if (root.phase === "paused") return "paused"
             if (root.together) {
+              if (root.phase === "paused") return "paused"
               if (root.service.stretchSeconds >= 600)
                 return root.fmt(root.service.stretchSeconds) + " without a break"
-              if (root.service.agreementMinutes > 0)
-                return "about " + root.fmt(root.service.agreementMinutes * 60) + " agreed"
               return ""
             }
-            return root.fmt(root.service.spentSeconds) + " used  ·  " + root.fmt(root.service.budgetSeconds) + " budget"
+            return root.stateLine
           }
           iconComponent: Component {
             Text {
+              id: heroIcon
               textFormat: Text.PlainText
               text: root.icon
               color: root.pillColor
               font.family: Style.font.family
               font.pixelSize: Style.font.display
+
+              // An hourglass that never turns is a drawing. Turning it over
+              // every twenty seconds is the panel saying the day is still
+              // running, which is exactly when the glyph is an hourglass:
+              // paused, idle and bedtime all draw something else.
+              property real flip: 0
+              rotation: flip
+
+              Behavior on flip {
+                NumberAnimation { duration: 700; easing.type: Easing.InOutCubic }
+              }
+
+              Timer {
+                interval: 20000
+                repeat: true
+                running: root.opened && root.phase === "running"
+                onTriggered: heroIcon.flip += 180
+              }
+            }
+          }
+        }
+
+        // The day, broken into cells of exactly equal width so the figures
+        // line up under each other however many there are. The cell is a
+        // plain Item and the labels are centred inside it: a nested layout
+        // sizes itself to its content and packs everything to the left.
+        Row {
+          id: statRow
+          width: parent.width
+          spacing: 0
+          visible: root.dayStats.length > 0
+
+          Repeater {
+            model: root.dayStats
+
+            delegate: Item {
+              width: statRow.width / Math.max(1, root.dayStats.length)
+              height: statCell.implicitHeight
+
+              Column {
+                id: statCell
+                anchors.centerIn: parent
+                spacing: Style.space(4)
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: modelData.value
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  color: modelData.accent === true ? root.okColor : Color.popups.text
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.title
+                  font.bold: true
+                }
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: String(modelData.label).toUpperCase()
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  color: root.fade(Color.popups.text, 0.45)
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                  font.letterSpacing: 1.2
+                }
+              }
             }
           }
         }
 
         // How far into the day you are: spent versus everything there is
         // today (or versus the agreement, in together mode, where the bar
-        // stays a neutral colour whatever it says).
-        Rectangle {
+        // stays a neutral colour whatever it says). The bar and the line
+        // under it are one block, so they sit closer than the sections do.
+        Column {
           width: parent.width
-          height: Style.space(4)
-          radius: height / 2
-          visible: !root.together || (root.service && root.service.agreementMinutes > 0)
-          color: root.fade(Color.popups.text, 0.85)
+          spacing: Style.space(6)
 
+          // Square ends, because the hatching runs to the edge and a rounded
+          // cap would cut the diagonals off mid stroke.
           Rectangle {
+            id: dayBar
+            width: parent.width
+            height: Style.space(12)
+            radius: 0
+            visible: !root.together || (root.service && root.service.agreementMinutes > 0)
+            color: root.fade(Color.popups.text, 0.86)
+
             readonly property int total: {
               if (!root.service) return 0
               if (root.together) return root.service.agreementMinutes * 60
               return root.service.spentSeconds + root.remaining
             }
-            height: parent.height
-            radius: parent.radius
-            width: parent.width * (total > 0 ? Math.min(1, (root.service ? root.service.spentSeconds : 0) / total) : 0)
-            color: root.together ? (root.bar ? root.bar.barForeground : "white") : root.pillColor
+            readonly property real fraction: total > 0
+              ? Math.min(1, (root.service ? root.service.spentSeconds : 0) / total) : 0
+            readonly property color fillColor: root.together
+              ? (root.bar ? root.bar.barForeground : "white") : root.pillColor
 
-            Behavior on width {
-              NumberAnimation { duration: 300; easing.type: Easing.OutCubic }
+            // The hatching: thin bars on the diagonal, one pitch apart. The
+            // pitch is also how far the pattern has to travel before it repeats,
+            // so drifting by exactly one pitch loops without a seam.
+            readonly property int stroke: Style.space(2)
+            readonly property int pitch: Style.space(7)
+            property real drift: 0
+
+            NumberAnimation on drift {
+              from: 0
+              to: dayBar.pitch
+              duration: 2200
+              loops: Animation.Infinite
+              // Only while time is actually being used up, and only while
+              // somebody is looking: a drifting pattern behind a closed panel
+              // is work nobody asked for. Agreement mode drifts too. The rule
+              // there is that nothing counts down and nothing warns, and a
+              // pattern saying the clock runs does neither.
+              running: root.opened && root.phase === "running"
+            }
+
+            Item {
+              id: fill
+              height: parent.height
+              width: parent.width * dayBar.fraction
+
+              Behavior on width {
+                NumberAnimation { duration: 300; easing.type: Easing.OutCubic }
+              }
+
+              // The base tint under the hatching.
+              Rectangle {
+                anchors.fill: parent
+                color: root.fade(dayBar.fillColor, 0.55)
+              }
+
+              Item {
+                anchors.fill: parent
+                clip: true
+
+                Row {
+                  height: parent.height
+                  x: -dayBar.pitch + dayBar.drift
+                  spacing: dayBar.pitch - dayBar.stroke
+
+                  Repeater {
+                    // Counted off the track, not off the fill, so the model
+                    // does not churn while the fill animates.
+                    model: Math.ceil((dayBar.width + dayBar.pitch * 4) / dayBar.pitch)
+
+                    delegate: Rectangle {
+                      width: dayBar.stroke
+                      // Taller than the bar and lifted, so the 45 degree turn
+                      // still covers the full height at both ends.
+                      height: dayBar.height * 2.4
+                      y: -dayBar.height * 0.7
+                      color: dayBar.fillColor
+                      rotation: 45
+                      antialiasing: true
+                    }
+                  }
+                }
+              }
             }
           }
+
+          // When the day ends, which the bar cannot say because bedtime is not
+          // a share of the budget.
+          Text {
+            textFormat: Text.PlainText
+            visible: root.underBarLine !== ""
+            text: root.underBarLine
+            width: parent.width
+            color: root.fade(Color.popups.text, 0.45)
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
+
         }
 
         // --- together mode: the agreement and the child's own notes ------
@@ -448,7 +774,7 @@ Panel {
           visible: root.together
 
           PanelSectionHeader {
-            text: "Our agreement"
+            text: "OUR AGREEMENT"
             foreground: Color.popups.text
           }
 
@@ -465,29 +791,6 @@ Panel {
             font.pixelSize: Style.font.body
           }
 
-          Row {
-            spacing: Style.space(8)
-
-            TextField {
-              id: togetherPinField
-              width: Style.space(90)
-              password: true
-              placeholderText: "PIN"
-              visible: root.service ? root.service.pinSet === true : false
-              activeFocusOnTab: true
-              inputMethodHints: Qt.ImhDigitsOnly
-            }
-            Button {
-              text: "Revisit together"
-              focusable: true
-              anchors.verticalCenter: parent.verticalCenter
-              onClicked: {
-                settingsWindow.show(togetherPinField.text.trim())
-                togetherPinField.text = ""
-                root.close()
-              }
-            }
-          }
         }
 
         PanelSeparator { width: parent.width; visible: root.together }
@@ -498,59 +801,234 @@ Panel {
           visible: root.together
 
           PanelSectionHeader {
-            text: "How is it going?"
+            text: "HOW IS IT GOING?"
             foreground: Color.popups.text
           }
 
-          Row {
+          // No button next to it: enter keeps the note, and the placeholder
+          // is where that is said, now that the button is gone. Rounded like
+          // the bubbles underneath, because it is the one you are writing.
+          TextField {
+            id: reflectField
             width: parent.width
-            spacing: Style.space(8)
+            placeholderText: "a note to yourself, enter keeps it"
+            activeFocusOnTab: true
+            Keys.onPressed: function(event) {
+              if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                root.submitReflection(); event.accepted = true
+              } else if (event.key === Qt.Key_Escape) {
+                root.close(); event.accepted = true
+              }
+            }
 
-            TextField {
-              id: reflectField
-              width: parent.width - reflectButton.implicitWidth - Style.space(8)
-              placeholderText: "a note to yourself about today"
-              activeFocusOnTab: true
-              Keys.onPressed: function(event) {
-                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                  root.submitReflection(); event.accepted = true
-                } else if (event.key === Qt.Key_Escape) {
-                  root.close(); event.accepted = true
+            // Only the corner radius differs from the shared field, so the
+            // fill and the border spec come from the field itself.
+            background: BorderSurface {
+              color: Style.controlFill(reflectField._focused, reflectField._hot,
+                                       reflectField.foreground, reflectField.accent)
+              borderSpec: reflectField._borderSpec
+              radius: Math.max(Style.cornerRadius, Style.space(10))
+            }
+          }
+
+          // The notes read as a conversation with yourself, so they are
+          // bubbles and they run oldest to newest, the way a chat does. The
+          // rounding is deliberate rather than the theme's: a square bubble
+          // is not a bubble, so it takes the larger of the two.
+          Column {
+            id: notes
+            width: parent.width
+            // Bubbles need room to read as separate notes rather than as one
+            // block of text, so they sit further apart than a list row would.
+            // The top padding is the gap to the field you write them in.
+            spacing: Style.space(10)
+            topPadding: Style.space(12)
+            bottomPadding: Style.space(4)
+
+            Repeater {
+              model: root.service && root.service.reflections
+                ? root.service.reflections : []
+
+              // Anchored rather than a Row: the times line up in one column
+              // on the right instead of trailing each bubble at whatever
+              // width it happens to have, which reads as ragged.
+              delegate: Item {
+                id: noteRow
+                width: notes.width
+                height: bubble.height
+
+                required property var modelData
+                required property int index
+                // Every other note leans the other way. A degree is enough to
+                // read as handwriting on a wall; more and it reads as broken.
+                readonly property real tilt: (index % 2 === 0 ? -0.9 : 0.8)
+                // The hover covers the whole row, not just the bubble. With it
+                // on the bubble the cross faded out exactly as the pointer
+                // travelled to it, and an invisible button still takes clicks,
+                // so it could also be hit blind.
+                readonly property bool showForget: rowHover.hovered || forgetButton.activeFocus
+
+                HoverHandler { id: rowHover }
+
+                Rectangle {
+                  id: bubble
+                  anchors.left: parent.left
+                  anchors.top: parent.top
+                  radius: Math.max(Style.cornerRadius, Style.space(10))
+                  color: root.fade(Color.popups.text, 0.86)
+                  width: bubbleText.width + Style.space(20)
+                  height: bubbleText.implicitHeight + Style.space(16)
+                  rotation: noteRow.tilt
+                  antialiasing: true
+
+                  Text {
+                    id: bubbleText
+                    textFormat: Text.PlainText
+                    text: root.plain(noteRow.modelData.text)
+                    // Clamped against its own natural width, so a short note
+                    // gets a short bubble and a long one wraps at the card.
+                    width: Math.min(implicitWidth, notes.width * 0.72)
+                    wrapMode: Text.WordWrap
+                    anchors.centerIn: parent
+                    color: Color.popups.text
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.body
+                  }
+                }
+
+                // Taking a note back. Hidden until the pointer is on the
+                // bubble, but it also appears on keyboard focus, because a
+                // control that only a mouse can find is not a control.
+                PanelActionButton {
+                  id: forgetButton
+                  iconText: root.iconClose
+                  tooltipText: "Forget this note"
+                  foreground: Color.popups.text
+                  hoverColor: root.blockColor
+                  size: Style.space(20)
+                  focusable: true
+                  opacity: noteRow.showForget ? 1 : 0
+                  anchors.right: noteTime.left
+                  anchors.rightMargin: Style.space(6)
+                  anchors.verticalCenter: bubble.verticalCenter
+                  onClicked: root.forgetNote(noteRow.modelData.t)
+
+                  Behavior on opacity {
+                    NumberAnimation { duration: 120 }
+                  }
+                }
+
+                Text {
+                  id: noteTime
+                  textFormat: Text.PlainText
+                  text: root.clockTime(noteRow.modelData.t)
+                  visible: text !== ""
+                  anchors.right: parent.right
+                  anchors.bottom: bubble.bottom
+                  anchors.bottomMargin: Style.space(5)
+                  color: root.fade(Color.popups.text, 0.55)
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.caption
                 }
               }
             }
-            Button {
-              id: reflectButton
-              text: "Keep"
-              focusable: true
-              anchors.verticalCenter: parent.verticalCenter
-              onClicked: root.submitReflection()
-            }
           }
 
-          Repeater {
-            model: root.service && root.service.reflections
-              ? root.service.reflections.slice().reverse() : []
-            delegate: Text {
-              textFormat: Text.PlainText
-              text: root.plain(modelData.text)
+        }
+
+        // Revisiting the agreement lives at the very bottom, under the
+        // notes: it is the one thing here a parent reaches for, and it
+        // should not sit between the child and their own words.
+        PanelSeparator { width: parent.width; visible: root.together }
+
+        // The same two steps as the parent drawer in limits mode: the PIN
+        // first, the button after. Where no PIN exists there is nothing to
+        // unlock, and agreement mode is allowed to work without one, so the
+        // button simply stands on its own.
+        Rectangle {
+          width: parent.width
+          // It used to inherit this from the section it sat in; standing on
+          // its own it has to say so itself, or it turns up in limits mode.
+          visible: root.together
+          radius: Style.cornerRadius
+          implicitHeight: togetherContent.implicitHeight + Style.space(12)
+          color: root.drawerColor(togetherPinField.text.length, false)
+
+          Behavior on color {
+            ColorAnimation { duration: 180; easing.type: Easing.OutCubic }
+          }
+
+          Item {
+            id: togetherContent
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.leftMargin: Style.space(10)
+            anchors.rightMargin: Style.space(10)
+            anchors.verticalCenter: parent.verticalCenter
+            implicitHeight: root.parentUnlocked || root.pinMissing
+              ? revisitRow.implicitHeight : togetherLockRow.implicitHeight
+            height: implicitHeight
+
+            Row {
+              id: togetherLockRow
               width: parent.width
-              wrapMode: Text.WordWrap
-              color: root.fade(Color.popups.text, 0.25)
-              font.family: Style.font.family
-              font.pixelSize: Style.font.body
+              spacing: Style.space(8)
+              visible: !root.parentUnlocked && !root.pinMissing
+
+              TextField {
+                id: togetherPinField
+                width: Math.max(Style.space(80),
+                                togetherLockRow.width - togetherUnlock.implicitWidth
+                                  - togetherLockRow.spacing)
+                password: true
+                placeholderText: "PIN"
+                activeFocusOnTab: true
+                inputMethodHints: Qt.ImhDigitsOnly
+                Keys.onPressed: function(event) {
+                  if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                    root.tryUnlock(togetherPinField.text); event.accepted = true
+                  } else if (event.key === Qt.Key_Escape) {
+                    root.close(); event.accepted = true
+                  }
+                }
+              }
+
+              Button {
+                id: togetherUnlock
+                text: "Unlock"
+                focusable: true
+                anchors.verticalCenter: parent.verticalCenter
+                onClicked: root.tryUnlock(togetherPinField.text)
+              }
+            }
+
+            Row {
+              id: revisitRow
+              width: parent.width
+              spacing: Style.space(8)
+              visible: root.parentUnlocked || root.pinMissing
+
+              Button {
+                text: "Revisit together"
+                focusable: true
+                onClicked: {
+                  settingsWindow.show(root.parentPin)
+                  root.close()
+                }
+              }
             }
           }
+        }
 
-          Text {
-            textFormat: Text.PlainText
-            text: "These notes are yours. Show them if you want to."
-            width: parent.width
-            wrapMode: Text.WordWrap
-            color: root.fade(Color.popups.text, 0.55)
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-          }
+        Text {
+          textFormat: Text.PlainText
+          visible: root.together && root.parentNote !== ""
+          text: root.parentNote
+          width: parent.width
+          wrapMode: Text.WordWrap
+          color: root.parentNoteColor
+          font.family: Style.font.family
+          font.pixelSize: Style.font.body
         }
 
         // --- limits mode: earning and the parent controls ----------------
@@ -563,45 +1041,64 @@ Panel {
           visible: root.earnEnabled && !root.together
 
           PanelSectionHeader {
-            text: "Earn minutes"
+            text: "EARN MINUTES"
             foreground: Color.popups.text
           }
 
-          Row {
+          // The one thing the child came here to do, so it sits on a surface
+          // of its own rather than reading as another line of text. The
+          // answer field takes what is left over, which puts Check against
+          // the right edge whatever the sum is.
+          Rectangle {
             width: parent.width
-            spacing: Style.space(10)
             visible: root.question !== null
+            radius: Style.cornerRadius
+            color: root.fade(Color.popups.text, 0.88)
+            implicitHeight: questionRow.implicitHeight + Style.space(12)
 
-            Text {
-              id: questionText
-              textFormat: Text.PlainText
-              text: root.question ? String(root.question.text) + " =" : ""
-              color: Color.popups.text
-              font.family: Style.font.family
-              font.bold: true
-              font.pixelSize: Style.font.title
+            Row {
+              id: questionRow
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.leftMargin: Style.space(10)
+              anchors.rightMargin: Style.space(10)
               anchors.verticalCenter: parent.verticalCenter
-            }
+              spacing: Style.space(10)
 
-            TextField {
-              id: answerField
-              width: Style.space(70)
-              activeFocusOnTab: true
-              inputMethodHints: Qt.ImhFormattedNumbersOnly
-              Keys.onPressed: function(event) {
-                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                  root.submitAnswer(); event.accepted = true
-                } else if (event.key === Qt.Key_Escape) {
-                  root.close(); event.accepted = true
+              Text {
+                id: questionText
+                textFormat: Text.PlainText
+                text: root.question ? String(root.question.text) + " =" : ""
+                color: Color.popups.text
+                font.family: Style.font.family
+                font.bold: true
+                font.pixelSize: Style.font.title
+                anchors.verticalCenter: parent.verticalCenter
+              }
+
+              TextField {
+                id: answerField
+                width: Math.max(Style.space(52),
+                                questionRow.width - questionText.width
+                                  - checkButton.implicitWidth - questionRow.spacing * 2)
+                activeFocusOnTab: true
+                inputMethodHints: Qt.ImhFormattedNumbersOnly
+                Keys.onPressed: function(event) {
+                  if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                    root.submitAnswer(); event.accepted = true
+                  } else if (event.key === Qt.Key_Escape) {
+                    root.close(); event.accepted = true
+                  }
                 }
               }
-            }
 
-            Button {
-              text: "Check"
-              focusable: true
-              anchors.verticalCenter: parent.verticalCenter
-              onClicked: root.submitAnswer()
+              Button {
+                id: checkButton
+                text: "Check"
+                focusable: true
+                anchors.verticalCenter: parent.verticalCenter
+                onClicked: root.submitAnswer()
+              }
             }
           }
 
@@ -645,7 +1142,7 @@ Panel {
             visible: root.earnEventsView.length > 0
 
             PanelSectionHeader {
-              text: "Earned today  ·  " + root.fmt(root.service ? root.service.earnedSeconds : 0)
+              text: "SUMS TODAY  ·  " + root.fmt(root.service ? root.service.earnedSeconds : 0).toUpperCase() + " EARNED"
               foreground: Color.popups.text
             }
 
@@ -658,25 +1155,49 @@ Panel {
               model: root.earnEventsView
               delegate: Item {
                 width: earnList.width
-                height: earnRowText.implicitHeight + Style.space(3)
+                height: earnRowText.implicitHeight + Style.space(10)
 
+                readonly property bool missed: modelData.kind === "miss"
+
+                // The sum is what happened, the right hand side is what it
+                // was worth: the question recedes and the outcome carries the
+                // colour. A miss keeps the answer that was given, struck
+                // through, so the afternoon shows the hard tables too.
                 Text {
                   id: earnRowText
                   textFormat: Text.PlainText
                   text: root.plain(modelData.q)
-                  color: Color.popups.text
+                  color: root.fade(Color.popups.text, 0.2)
                   font.family: Style.font.family
                   font.pixelSize: Style.font.body
                   anchors.verticalCenter: parent.verticalCenter
                 }
-                Text {
-                  textFormat: Text.PlainText
-                  text: "+" + Number(modelData.seconds) + "s"
-                  color: root.okColor
-                  font.family: Style.font.family
-                  font.pixelSize: Style.font.body
+                Row {
                   anchors.right: parent.right
                   anchors.verticalCenter: parent.verticalCenter
+                  spacing: Style.space(6)
+
+                  Text {
+                    textFormat: Text.PlainText
+                    visible: parent.parent.missed
+                    text: String(modelData.given)
+                    color: root.blockColor
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.body
+                    font.strikeout: true
+                  }
+
+                  Text {
+                    textFormat: Text.PlainText
+                    text: parent.parent.missed
+                      ? String(modelData.answer)
+                      : "+" + Number(modelData.seconds) + "s"
+                    color: parent.parent.missed
+                      ? root.fade(Color.popups.text, 0.35) : root.okColor
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.body
+                    font.bold: !parent.parent.missed
+                  }
                 }
               }
             }
@@ -691,63 +1212,190 @@ Panel {
           spacing: Style.space(6)
           visible: !root.together
 
-          PanelSectionHeader {
-            text: "Parent"
-            foreground: Color.popups.text
+          // The header carries the lock itself, so the state is readable
+          // from the shape before anybody reads the words.
+          Item {
+            width: parent.width
+            implicitHeight: parentHeader.implicitHeight
+
+            PanelSectionHeader {
+              id: parentHeader
+              text: "PARENT"
+              foreground: Color.popups.text
+            }
+
+            Text {
+              textFormat: Text.PlainText
+              // An open lock for a drawer that has no PIN either, because
+              // that is exactly what it is: not shut.
+              text: root.parentUnlocked || root.pinMissing ? root.iconUnlock : root.iconLock
+              color: root.pinMissing ? root.warnColor
+                : (root.parentUnlocked ? root.okColor : root.fade(Color.popups.text, 0.5))
+              anchors.right: parent.right
+              anchors.verticalCenter: parentHeader.verticalCenter
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+            }
           }
 
-          Row {
+          // The drawer. Quiet while it is shut, warming towards the accent
+          // as the PIN comes in, green once it is open and red when the PIN
+          // was wrong: the colour says where you are before the note does.
+          Rectangle {
+            id: parentDrawer
             width: parent.width
-            spacing: Style.space(8)
-            visible: !root.parentUnlocked
+            radius: Style.cornerRadius
+            implicitHeight: parentContent.implicitHeight + Style.space(12)
 
-            TextField {
-              id: pinField
-              width: Style.space(110)
-              password: true
-              placeholderText: "PIN"
-              activeFocusOnTab: true
-              inputMethodHints: Qt.ImhDigitsOnly
-              Keys.onPressed: function(event) {
-                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                  root.tryUnlock(); event.accepted = true
-                } else if (event.key === Qt.Key_Escape) {
-                  root.close(); event.accepted = true
+            color: root.drawerColor(root.pinMissing ? newPinField.text.length
+                                                    : pinField.text.length, true)
+
+            Behavior on color {
+              ColorAnimation { duration: 180; easing.type: Easing.OutCubic }
+            }
+
+            Item {
+              id: parentContent
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.leftMargin: Style.space(10)
+              anchors.rightMargin: Style.space(10)
+              anchors.verticalCenter: parent.verticalCenter
+              implicitHeight: root.pinMissing ? pinSetup.implicitHeight
+                : (root.parentUnlocked ? actionFlow.implicitHeight : lockRow.implicitHeight)
+              height: implicitHeight
+
+              // Nothing is locked yet. Rather than a box that opens on any
+              // input, the drawer says so and takes the first PIN here.
+              Column {
+                id: pinSetup
+                width: parent.width
+                spacing: Style.space(8)
+                visible: root.pinMissing
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: "No PIN yet, so anyone can hand out minutes. Pick one and this drawer is yours."
+                  width: parent.width
+                  wrapMode: Text.WordWrap
+                  color: root.fade(Color.popups.text, 0.2)
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.body
+                }
+
+                TextField {
+                  id: newPinField
+                  width: parent.width
+                  password: true
+                  placeholderText: "new PIN, 4 to 12 digits"
+                  activeFocusOnTab: true
+                  inputMethodHints: Qt.ImhDigitsOnly
+                  Keys.onPressed: function(event) {
+                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                      newPinAgainField.forceActiveFocus(); event.accepted = true
+                    } else if (event.key === Qt.Key_Escape) {
+                      root.close(); event.accepted = true
+                    }
+                  }
+                }
+
+                Row {
+                  width: parent.width
+                  spacing: Style.space(8)
+
+                  TextField {
+                    id: newPinAgainField
+                    width: Math.max(Style.space(80),
+                                    parent.width - setPinButton.implicitWidth - parent.spacing)
+                    password: true
+                    placeholderText: "once more"
+                    activeFocusOnTab: true
+                    inputMethodHints: Qt.ImhDigitsOnly
+                    Keys.onPressed: function(event) {
+                      if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                        root.setPin(); event.accepted = true
+                      } else if (event.key === Qt.Key_Escape) {
+                        root.close(); event.accepted = true
+                      }
+                    }
+                  }
+
+                  Button {
+                    id: setPinButton
+                    text: "Set PIN"
+                    focusable: true
+                    anchors.verticalCenter: parent.verticalCenter
+                    onClicked: root.setPin()
+                  }
                 }
               }
-            }
 
-            Button {
-              text: "Unlock"
-              focusable: true
-              anchors.verticalCenter: parent.verticalCenter
-              onClicked: root.tryUnlock()
-            }
-          }
+              Row {
+                id: lockRow
+                width: parent.width
+                spacing: Style.space(8)
+                visible: !root.parentUnlocked && !root.pinMissing
 
-          // A Flow, not a Row: with the pause and settings buttons this no
-          // longer fits on one line inside the card, so it wraps instead of
-          // running out of the border.
-          Flow {
-            width: parent.width
-            spacing: Style.space(6)
-            visible: root.parentUnlocked
+                TextField {
+                  id: pinField
+                  width: Math.max(Style.space(80),
+                                  lockRow.width - unlockButton.implicitWidth - lockRow.spacing)
+                  password: true
+                  placeholderText: "PIN"
+                  activeFocusOnTab: true
+                  inputMethodHints: Qt.ImhDigitsOnly
+                  Keys.onPressed: function(event) {
+                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                      root.tryUnlock(pinField.text); event.accepted = true
+                    } else if (event.key === Qt.Key_Escape) {
+                      root.close(); event.accepted = true
+                    }
+                  }
+                }
 
-            Button { text: "+15"; focusable: true; onClicked: root.grant(15) }
-            Button { text: "+30"; focusable: true; onClicked: root.grant(30) }
-            Button { text: "+60"; focusable: true; onClicked: root.grant(60) }
-            Button { text: "-15"; focusable: true; onClicked: root.grant(-15) }
-            Button {
-              text: root.phase === "paused" ? "Resume" : "Pause"
-              focusable: true
-              onClicked: root.togglePause()
-            }
-            Button {
-              text: "Settings"
-              focusable: true
-              onClicked: {
-                settingsWindow.show(root.parentPin)
-                root.close()
+                Button {
+                  id: unlockButton
+                  text: "Unlock"
+                  focusable: true
+                  anchors.verticalCenter: parent.verticalCenter
+                  onClicked: root.tryUnlock(pinField.text)
+                }
+              }
+
+              // A Flow, not a Row: with the pause and settings buttons this
+              // no longer fits on one line inside the card, so it wraps
+              // instead of running out of the border.
+              Flow {
+                id: actionFlow
+                width: parent.width
+                spacing: Style.space(6)
+                visible: root.parentUnlocked && !root.pinMissing
+
+                Button { text: "+15"; focusable: true; onClicked: root.grant(15) }
+                Button { text: "+60"; focusable: true; onClicked: root.grant(60) }
+                Button { text: "-15"; focusable: true; onClicked: root.grant(-15) }
+                Button {
+                  text: root.phase === "paused" ? "Resume" : "Pause"
+                  focusable: true
+                  onClicked: root.togglePause()
+                }
+
+                // The odd one out in this row: it opens a window instead of
+                // handing out time, so it is a gear rather than a word. The
+                // caption under the card names it for a keyboard, which never
+                // gets to see a tooltip.
+                PanelActionButton {
+                  iconText: root.iconGear
+                  tooltipText: "Settings"
+                  foreground: Color.popups.text
+                  size: Style.spacing.controlHeight
+                  focusable: true
+                  bordered: true
+                  onClicked: {
+                    settingsWindow.show(root.parentPin)
+                    root.close()
+                  }
+                }
               }
             }
           }
@@ -762,15 +1410,6 @@ Panel {
           }
         }
 
-        Text {
-          textFormat: Text.PlainText
-          text: "enter confirms  ·  tab moves  ·  esc closes"
-          width: parent.width
-          wrapMode: Text.WordWrap
-          color: root.fade(Color.popups.text, 0.55)
-          font.family: Style.font.family
-          font.pixelSize: Style.font.caption
-        }
       }
     }
   }

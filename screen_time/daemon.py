@@ -28,7 +28,10 @@ PIN_LOCKOUT = [0, 0, 1, 5, 15, 60, 300]
 def _human_time(seconds):
     seconds = max(0, int(seconds))
     if seconds >= 3600:
-        return "%dh%02d" % (seconds // 3600, (seconds % 3600) // 60)
+        hours, minutes = seconds // 3600, (seconds % 3600) // 60
+        # A whole hour reads as "1h"; the zeroes only earn their place when
+        # there are minutes next to them.
+        return "%dh" % hours if minutes == 0 else "%dh%02d" % (hours, minutes)
     return "%dm" % (seconds // 60)
 
 
@@ -336,6 +339,13 @@ class Account:
                     self.clear_block()
             self.day.correct += 1
             self.day.dirty = True
+        else:
+            # A miss is worth keeping too. A list that only shows what went
+            # right says nothing about which tables are still hard, and the
+            # child gets to see their own afternoon rather than a scoreboard.
+            self.day.record("miss", meta={"q": verdict.get("text", ""),
+                                          "given": verdict.get("given"),
+                                          "answer": verdict.get("answer")})
         self.store.save_stats(self.stats)
         self.save()
         verdict.update({
@@ -400,15 +410,25 @@ class Account:
         }
 
     def earn_events(self, limit=50):
-        """Today's earned rewards, oldest first, for the panel's tally list."""
+        """Today's sums, oldest first, for the panel's tally list.
+
+        Both the rewards and the misses, because the misses are the half that
+        says which tables are still hard.
+        """
         out = []
         for entry in self.day.ledger:
-            if entry.get("kind") != "earn":
+            kind = entry.get("kind")
+            if kind not in ("earn", "miss"):
                 continue
             meta = entry.get("meta") or {}
-            out.append({"t": entry.get("t", 0),
-                        "seconds": int(entry.get("seconds", 0)),
-                        "q": str(meta.get("q", ""))})
+            row = {"t": entry.get("t", 0),
+                   "kind": kind,
+                   "seconds": int(entry.get("seconds", 0)),
+                   "q": str(meta.get("q", ""))}
+            if kind == "miss":
+                row["given"] = meta.get("given")
+                row["answer"] = meta.get("answer")
+            out.append(row)
         return out[-limit:]
 
 
@@ -447,13 +467,20 @@ DEMO_STATUS = {
         "ops": ["mul", "div"],
         "tables": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         "events": [
-            {"t": 1788470000.0, "seconds": 30, "q": "7 × 8"},
-            {"t": 1788470100.0, "seconds": 30, "q": "54 ÷ 6"},
-            {"t": 1788470200.0, "seconds": 30, "q": "9 × 6"},
+            {"t": 1788470000.0, "kind": "earn", "seconds": 30, "q": "7 × 8"},
+            {"t": 1788470100.0, "kind": "miss", "seconds": 0, "q": "8 × 7",
+             "given": 54, "answer": 56},
+            {"t": 1788470200.0, "kind": "earn", "seconds": 30, "q": "54 ÷ 6"},
+            {"t": 1788470300.0, "kind": "earn", "seconds": 30, "q": "9 × 6"},
         ],
     },
     "demo": True,
 }
+
+# The PIN the demo answers to. The demo has no stored PIN of its own, and a
+# gate that opens on anything is worse than no gate at all, so it gets one
+# published number instead. It is written down in the README.
+DEMO_PIN = "1234"
 
 DEMO_HISTORY = [
     {"day": "2026-09-02", "budget_seconds": 3600, "spent_seconds": 1455, "earned_seconds": 600,
@@ -581,10 +608,32 @@ class Daemon:
 
     # commands -----------------------------------------------------------
 
-    def check_pin(self, account, message):
+    def check_pin(self, account, message, command=""):
         stored = self.config.get("pin")
         if not stored:
-            return None
+            # No PIN configured is not the same as no PIN required. Without
+            # this the lock in the panel is decoration: every parent action
+            # goes through on an empty config. Two things still have to work:
+            # setting that first PIN, or nobody could ever start, and the demo
+            # switch, or a machine without a PIN could never leave demo mode.
+            if command in ("pin.set", "demo"):
+                return None
+            # Agreement mode has nothing to gate: no budget, no grants, and an
+            # agreement that is meant to be written together in the first
+            # place. A PIN there would only lock a family out of their own
+            # words. A household that did set one keeps it, because the check
+            # below still runs.
+            if account is not None and account.together:
+                return None
+            # The demo pretends to be a household that has a PIN, so the gate
+            # is real there too and DEMO_PIN is the one that opens it. Letting
+            # the demo through on anything would leave a drawer that opens on
+            # a wrong PIN, which is the hole this check exists to close.
+            if self.config.get("demo"):
+                if str(message.get("pin", "")) == DEMO_PIN:
+                    return None
+                return {"ok": False, "error": "bad_pin"}
+            return {"ok": False, "error": "no_pin_set"}
         now = time.time()
         if account and now < account.pin_blocked_until:
             return {"ok": False, "error": "pin_locked_out",
@@ -666,8 +715,30 @@ class Daemon:
                 account.save()
                 return {"ok": True, "reflections": account.reflections()}
 
+        if command == "reflect.forget":
+            # Taking a note back is the child's too, so it asks for no PIN
+            # either. Matched on the entry's own timestamp: the panel hands
+            # back what it was given rather than an index into a list that
+            # may have grown since.
+            try:
+                stamp = round(float(message.get("t", 0)), 1)
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "bad_timestamp"}
+            with self.lock:
+                before = len(account.day.ledger)
+                account.day.ledger = [
+                    entry for entry in account.day.ledger
+                    if not (entry.get("kind") == "reflection"
+                            and round(float(entry.get("t", 0)), 1) == stamp)
+                ]
+                if len(account.day.ledger) == before:
+                    return {"ok": False, "error": "no_such_note"}
+                account.day.dirty = True
+                account.save()
+                return {"ok": True, "reflections": account.reflections()}
+
         # everything below changes the budget, so it is the parent's to do
-        refusal = self.check_pin(account, message)
+        refusal = self.check_pin(account, message, command)
         if refusal:
             return refusal
         if demo and command in ("grant", "pause", "lock"):

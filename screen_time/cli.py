@@ -165,6 +165,10 @@ def cmd_reflect(args):
     return _emit(_request({"cmd": "reflect", "text": " ".join(args.words)}), args.human)
 
 
+def cmd_forget(args):
+    return _emit(_request({"cmd": "reflect.forget", "t": args.t}), args.human)
+
+
 def cmd_config_patch(args):
     try:
         patch = json.loads(args.patch)
@@ -223,6 +227,10 @@ def build_parser():
     reflect = sub.add_parser("reflect", help="write a note about your own screen time")
     reflect.add_argument("words", nargs="+")
     reflect.set_defaults(func=cmd_reflect)
+
+    forget = sub.add_parser("forget", help="take one of your own notes back")
+    forget.add_argument("t", type=float, help="the note's timestamp, as status reports it")
+    forget.set_defaults(func=cmd_forget)
 
     idle = sub.add_parser("idle", help="for the hypridle hook")
     idle.add_argument("value", choices=["on", "off"])

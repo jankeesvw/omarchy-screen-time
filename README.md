@@ -111,6 +111,8 @@ One file, with a profile per child. The daemon clamps every value on read: a bud
 
 The parent PIN is stored hashed (pbkdf2, 600k rounds) and never travels as a command line argument, because `/proc/<pid>/cmdline` is readable by everyone on the machine.
 
+No PIN is not the same as no lock. Until one is set, everything that hands out or takes away time is refused with `no_pin_set`, and the panel says so and takes the first PIN right there. Only two things work without one: setting that first PIN, and the demo switch. In demo mode the PIN is `1234`, because a drawer that opens on any number would be worse than no drawer at all, and every write behind it stays a no-op.
+
 ## Testing
 
 ```
