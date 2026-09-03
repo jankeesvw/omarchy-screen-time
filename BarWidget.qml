@@ -352,8 +352,11 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: root.together ? reflectField : (root.earnEnabled ? answerField : pinField)
-    contentWidth: Math.min(Style.space(330),
-                           panel.availableCardWidth > 0 ? panel.availableCardWidth : Style.space(330))
+    // Agreement mode is nearly all prose, and prose reads better on a
+    // narrower measure than a card full of controls.
+    readonly property int desiredWidth: Style.space(root.together ? 280 : 330)
+    contentWidth: Math.min(desiredWidth,
+                           panel.availableCardWidth > 0 ? panel.availableCardWidth : desiredWidth)
     contentHeight: panel.fittedContentHeight(content.implicitHeight)
 
     // A form, so a plain Item as the key catcher: Tab walks the controls the
@@ -542,6 +545,8 @@ Panel {
           Text {
             textFormat: Text.PlainText
             text: "These notes are yours. Show them if you want to."
+            width: parent.width
+            wrapMode: Text.WordWrap
             color: root.fade(Color.popups.text, 0.55)
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
@@ -760,6 +765,8 @@ Panel {
         Text {
           textFormat: Text.PlainText
           text: "enter confirms  ·  tab moves  ·  esc closes"
+          width: parent.width
+          wrapMode: Text.WordWrap
           color: root.fade(Color.popups.text, 0.55)
           font.family: Style.font.family
           font.pixelSize: Style.font.caption

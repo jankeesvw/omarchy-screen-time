@@ -74,6 +74,8 @@ The panel asks "How is it going?" and keeps the child's notes (`omarchy-screen-t
 
 The two philosophies live per profile, so one child can have limits while another has an agreement, and a family can start strict and grow towards together.
 
+![The settings in Agreement mode: the agreement in the family's own words, the agreed minutes, and the break nudge](screenshots/settings-agreement.jpg)
+
 ## Config
 
 ![The settings window: the approach choice, and every knob for the chosen mode](screenshots/settings.jpg)
