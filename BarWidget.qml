@@ -383,23 +383,20 @@ Panel {
             if (root.blockedPhase) return root.phase === "bedtime" ? "bedtime" : "time's up"
             return root.fmt(root.remaining) + " left"
           }
+          // One line, so one fact at a time: the hero meta elides rather than
+          // wraps. Earned and granted minutes already show further down, and
+          // the agreed time is also the progress bar's scale.
           meta: {
             if (!root.service) return ""
+            if (root.phase === "paused") return "paused"
             if (root.together) {
-              var bits = []
-              if (root.service.agreementMinutes > 0)
-                bits.push("agreement: about " + root.fmt(root.service.agreementMinutes * 60))
               if (root.service.stretchSeconds >= 600)
-                bits.push(root.fmt(root.service.stretchSeconds) + " without a break")
-              if (root.phase === "paused") bits = ["paused"].concat(bits)
-              return bits.join("  ·  ")
+                return root.fmt(root.service.stretchSeconds) + " without a break"
+              if (root.service.agreementMinutes > 0)
+                return "about " + root.fmt(root.service.agreementMinutes * 60) + " agreed"
+              return ""
             }
-            var parts = [root.fmt(root.service.spentSeconds) + " used",
-                         root.fmt(root.service.budgetSeconds) + " budget"]
-            if (root.service.earnedSeconds > 0) parts.push(root.fmt(root.service.earnedSeconds) + " earned")
-            if (root.service.grantedSeconds !== 0) parts.push(Math.round(root.service.grantedSeconds / 60) + "m granted")
-            if (root.phase === "paused") parts = ["paused"].concat(parts)
-            return parts.join("  ·  ")
+            return root.fmt(root.service.spentSeconds) + " used  ·  " + root.fmt(root.service.budgetSeconds) + " budget"
           }
           iconComponent: Component {
             Text {

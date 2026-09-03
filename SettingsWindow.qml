@@ -160,7 +160,7 @@ Item {
             onClicked: if (root.together) root.patch({ "philosophy": "limits" })
           }
           Button {
-            text: "Together"
+            text: "Agreement"
             bordered: true
             selected: root.together
             focusable: true
@@ -171,8 +171,8 @@ Item {
         Text {
           textFormat: Text.PlainText
           text: root.together
-            ? "No lock and no rewards. A shared agreement, gentle information, and notes that belong to the child."
-            : "A daily budget, a lock at zero, and minutes to earn with math problems."
+            ? "No lock and no rewards. An agreement in your own words, gentle reminders, and notes that stay the child's own."
+            : "A daily budget, fair warnings, and a lock at zero. Extra minutes can be earned with math problems."
           width: parent.width
           wrapMode: Text.WordWrap
           color: root.fadeText(0.5)
