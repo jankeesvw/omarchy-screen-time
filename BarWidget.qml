@@ -1042,6 +1042,9 @@ Panel {
               Button {
                 text: "Revisit together"
                 focusable: true
+                // The only thing in this drawer, so it takes the whole width
+                // rather than sitting in the corner of an empty box.
+                width: revisitRow.width
                 onClicked: {
                   settingsWindow.show(root.parentPin)
                   root.close()
@@ -1293,7 +1296,7 @@ Panel {
               anchors.rightMargin: Style.space(10)
               anchors.verticalCenter: parent.verticalCenter
               implicitHeight: root.pinMissing ? pinSetup.implicitHeight
-                : (root.parentUnlocked ? actionFlow.implicitHeight : lockRow.implicitHeight)
+                : (root.parentUnlocked ? actionArea.implicitHeight : lockRow.implicitHeight)
               height: implicitHeight
 
               // Nothing is locked yet. Rather than a box that opens on any
@@ -1393,35 +1396,46 @@ Panel {
                 }
               }
 
-              // A Flow, not a Row: with the pause and settings buttons this
-              // no longer fits on one line inside the card, so it wraps
-              // instead of running out of the border.
-              Flow {
-                id: actionFlow
+              // The gear is pinned to the right edge instead of trailing the
+              // row: it opens a window rather than handing out time, and a
+              // wrapping Flow would otherwise park it wherever it happens to
+              // land. Anchored to the top so it stays level with the first
+              // row of buttons when the rest wraps.
+              Item {
+                id: actionArea
                 width: parent.width
-                spacing: Style.space(6)
                 visible: root.parentUnlocked && !root.pinMissing
+                implicitHeight: Math.max(actionFlow.implicitHeight, gearButton.height)
+                height: implicitHeight
 
-                Button { text: "+15"; focusable: true; onClicked: root.grant(15) }
-                Button { text: "+60"; focusable: true; onClicked: root.grant(60) }
-                Button { text: "-15"; focusable: true; onClicked: root.grant(-15) }
-                Button {
-                  text: root.phase === "paused" ? "Resume" : "Pause"
-                  focusable: true
-                  onClicked: root.togglePause()
+                Flow {
+                  id: actionFlow
+                  anchors.left: parent.left
+                  anchors.right: gearButton.left
+                  anchors.rightMargin: Style.space(8)
+                  anchors.top: parent.top
+                  spacing: Style.space(6)
+
+                  Button { text: "+15"; focusable: true; onClicked: root.grant(15) }
+                  Button { text: "+60"; focusable: true; onClicked: root.grant(60) }
+                  Button { text: "-15"; focusable: true; onClicked: root.grant(-15) }
+                  Button {
+                    text: root.phase === "paused" ? "Resume" : "Pause"
+                    focusable: true
+                    onClicked: root.togglePause()
+                  }
                 }
 
-                // The odd one out in this row: it opens a window instead of
-                // handing out time, so it is a gear rather than a word. The
-                // caption under the card names it for a keyboard, which never
-                // gets to see a tooltip.
                 PanelActionButton {
+                  id: gearButton
                   iconText: root.iconGear
                   tooltipText: "Settings"
                   foreground: Color.popups.text
                   size: Style.spacing.controlHeight
                   focusable: true
                   bordered: true
+                  anchors.right: parent.right
+                  anchors.top: parent.top
                   onClicked: {
                     settingsWindow.show(root.parentPin)
                     root.close()

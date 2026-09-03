@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import Quickshell
 import Quickshell.Io
 import qs.Ui
@@ -177,7 +178,10 @@ Item {
     // Sized to the content, and fixed: a non-resizable window is floated by
     // Hyprland as a dialog instead of tiled over the screen, and a height
     // that follows the content leaves no dead space at the bottom.
-    readonly property int fittedW: 520
+    // Agreement mode hides the budget grid, the periods and the earning
+    // knobs, so the same 520 leaves a lot of empty card next to a few short
+    // controls. It gets its own, narrower measure.
+    readonly property int fittedW: root.together ? 460 : 520
     readonly property int fittedH: Math.ceil(content.implicitHeight) + Style.space(40)
     implicitWidth: fittedW
     implicitHeight: fittedH
@@ -248,12 +252,58 @@ Item {
             text: "The agreement, in your own words (write it together)"
           }
 
-          TextField {
-            id: agreementField
+          // An agreement is a few sentences, not a field, so it wraps and
+          // grows. There is no editingFinished on a text area, so it saves
+          // when the focus leaves and on ctrl+enter, and plain enter is a
+          // newline like anywhere else you write prose.
+          Rectangle {
             width: parent.width
-            placeholderText: "On school days about an hour, and we stop before dinner."
-            activeFocusOnTab: true
-            onEditingFinished: root.patch({ "agreement_text": text.trim() })
+            implicitHeight: Math.max(Style.space(84), agreementField.implicitHeight + Style.space(4))
+            radius: Style.cornerRadius
+            color: Style.controlFill(agreementField.activeFocus, agreementField.hovered,
+                                     Color.foreground, Color.accent)
+            border.width: 1
+            border.color: agreementField.activeFocus
+              ? Color.accent : root.fadeText(0.75)
+
+            ScrollView {
+              anchors.fill: parent
+              anchors.margins: Style.space(2)
+              clip: true
+
+              TextArea {
+                id: agreementField
+                wrapMode: TextArea.Wrap
+                activeFocusOnTab: true
+                placeholderText: "On school days about an hour, and we stop before dinner."
+                placeholderTextColor: root.fadeText(0.55)
+                color: Color.foreground
+                font.family: Style.font.family
+                font.pixelSize: Style.font.body
+                background: null
+
+                function save() {
+                  var value = text.trim()
+                  if (value !== String(root.service ? root.service.agreementText : ""))
+                    root.patch({ "agreement_text": value })
+                }
+
+                onActiveFocusChanged: if (!activeFocus) save()
+
+                Keys.onPressed: function(event) {
+                  if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+                      && (event.modifiers & Qt.ControlModifier)) {
+                    save(); event.accepted = true
+                  } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
+                    // A text area swallows tab as a character, which would
+                    // take this field out of the keyboard's reach.
+                    save()
+                    nextItemInFocusChain(event.key === Qt.Key_Tab).forceActiveFocus()
+                    event.accepted = true
+                  }
+                }
+              }
+            }
           }
 
           Row {

@@ -177,7 +177,9 @@ def sanitize_profile(raw):
     return {
         "name": name,
         "philosophy": philosophy,
-        "agreement_text": str(raw.get("agreement_text", ""))[:200],
+        # Room for a few sentences now that it is written in a text area,
+        # and still a hard stop so a paste cannot grow the config forever.
+        "agreement_text": str(raw.get("agreement_text", ""))[:500],
         "agreement_minutes": _int(raw.get("agreement_minutes"), DEFAULT_PROFILE["agreement_minutes"], 0, 1440),
         "break_nudge_minutes": _int(raw.get("break_nudge_minutes"), DEFAULT_PROFILE["break_nudge_minutes"], 0, 480),
         "budget_minutes": budget,
