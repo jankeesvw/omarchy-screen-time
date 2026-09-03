@@ -113,12 +113,16 @@ Item {
     visible: false
     title: "Screen Time settings"
     color: Color.background
-    implicitWidth: 520
-    implicitHeight: 640
-    // A fixed size makes the window non-resizable, and Hyprland floats a
-    // non-resizable window as a dialog instead of tiling it over the screen.
-    minimumSize: Qt.size(520, 640)
-    maximumSize: Qt.size(520, 640)
+
+    // Sized to the content, and fixed: a non-resizable window is floated by
+    // Hyprland as a dialog instead of tiled over the screen, and a height
+    // that follows the content leaves no dead space at the bottom.
+    readonly property int fittedW: 520
+    readonly property int fittedH: Math.ceil(content.implicitHeight) + Style.space(40)
+    implicitWidth: fittedW
+    implicitHeight: fittedH
+    minimumSize: Qt.size(fittedW, fittedH)
+    maximumSize: Qt.size(fittedW, fittedH)
 
     FocusScope {
       anchors.fill: parent
@@ -130,7 +134,9 @@ Item {
 
       Column {
         id: content
-        anchors.fill: parent
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
         anchors.margins: Style.space(20)
         spacing: Style.space(14)
 
@@ -304,22 +310,27 @@ Item {
 
         PanelSeparator { width: parent.width }
 
-        Text {
-          textFormat: Text.PlainText
-          text: root.note !== "" ? root.note : "Changes apply immediately."
-          color: root.note !== "" ? root.noteColor : root.fadeText(0.5)
-          font.family: Style.font.family
-          font.pixelSize: Style.font.caption
-        }
-
-        Text {
-          textFormat: Text.PlainText
-          text: "The PIN is changed on the command line: omarchy-screen-time pin set (it asks for the current PIN first)."
+        Row {
           width: parent.width
-          wrapMode: Text.WordWrap
-          color: root.fadeText(0.5)
-          font.family: Style.font.family
-          font.pixelSize: Style.font.caption
+
+          Text {
+            textFormat: Text.PlainText
+            text: root.note !== "" ? root.note : "Changes apply immediately."
+            color: root.note !== "" ? root.noteColor : root.fadeText(0.5)
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            width: parent.width - pinHint.width
+            elide: Text.ElideRight
+          }
+
+          Text {
+            id: pinHint
+            textFormat: Text.PlainText
+            text: "change the PIN: omarchy-screen-time pin set"
+            color: root.fadeText(0.6)
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
         }
       }
     }

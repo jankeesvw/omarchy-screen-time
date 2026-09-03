@@ -566,7 +566,11 @@ Panel {
             }
           }
 
-          Row {
+          // A Flow, not a Row: with the pause and settings buttons this no
+          // longer fits on one line inside the card, so it wraps instead of
+          // running out of the border.
+          Flow {
+            width: parent.width
             spacing: Style.space(6)
             visible: root.parentUnlocked
 
