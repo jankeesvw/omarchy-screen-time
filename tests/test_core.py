@@ -130,6 +130,13 @@ def test_config():
     check("the reward is clamped", profile["earn"]["seconds_per_correct"] == 600)
     check("an unknown active profile is corrected", cfg["active_profile"] == "kid")
 
+    merged = config.deep_merge(
+        {"earn": {"enabled": True, "tables": [1, 2]}, "grace_seconds": 60},
+        {"earn": {"enabled": False}})
+    check("a patch only touches what it names",
+          merged["earn"]["enabled"] is False and merged["earn"]["tables"] == [1, 2]
+          and merged["grace_seconds"] == 60)
+
     stored = config.hash_pin("4321")
     check("the right pin verifies", config.verify_pin(stored, "4321"))
     check("the wrong pin does not", not config.verify_pin(stored, "4322"))

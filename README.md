@@ -13,6 +13,7 @@ The plugin itself ships three components from one manifest, and they share a sin
 - **Service.qml** (`keepLoaded`) holds the one `omarchy-screentime watch` stream and is where the state lives. It keeps counting down locally between daemon ticks, so the last minutes read as a clock.
 - **BarWidget.qml** is the pill in the bar plus the panel behind it. The pill shows a glyph for the phase (hourglass, clock when idle, pause, lock, moon for bedtime) and the time that is left; it warns in amber below the last warning threshold and turns red when the time is up. Click it and the panel opens: the child answers math problems to earn minutes right there, and a parent unlocks fixed choices (+15, +30, +60, -15, pause) with the PIN. The PIN goes to the daemon over stdin, never as an argument, and is forgotten when the panel closes.
 - **Countdown.qml** is a small card at the bottom of the screen that appears once the time drops below five minutes, and during the grace period counts down to the lock. It takes no input and never blocks a click.
+- **SettingsWindow.qml** is the parent's settings in a floating window of its own, opened from the panel after the PIN unlock: minutes per weekday, bedtime, and the earning knobs (on or off, division problems, which tables, the reward, the daily cap). Every change is a partial `config patch` to the daemon and applies immediately. Changing the PIN itself stays on the command line: `omarchy-screentime pin set`, which asks for the current PIN first.
 
 ```
 omarchy-screentime --human status

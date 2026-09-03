@@ -161,6 +161,16 @@ def cmd_config_set(args):
     return _emit(_request({"cmd": "config.set", "config": incoming, "pin": _ask_pin(args)}), args.human)
 
 
+def cmd_config_patch(args):
+    try:
+        patch = json.loads(args.patch)
+    except ValueError:
+        return _fail("that is not valid json")
+    if not isinstance(patch, dict):
+        return _fail("the patch must be a json object")
+    return _emit(_request({"cmd": "config.patch", "patch": patch, "pin": _ask_pin(args)}), args.human)
+
+
 def cmd_pin_set(args):
     new_pin = getpass.getpass("new PIN: ") if sys.stdin.isatty() else sys.stdin.readline().strip()
     old = ""
@@ -220,6 +230,9 @@ def build_parser():
     config_set = config_sub.add_parser("set")
     config_set.add_argument("file", help="a json file, or - for stdin")
     config_set.set_defaults(func=cmd_config_set)
+    config_patch = config_sub.add_parser("patch", help="merge a partial change into your profile")
+    config_patch.add_argument("patch", help="a json object, e.g. '{\"earn\": {\"enabled\": false}}'")
+    config_patch.set_defaults(func=cmd_config_patch)
 
     pin = sub.add_parser("pin")
     pin_sub = pin.add_subparsers(dest="pin_command", required=True)

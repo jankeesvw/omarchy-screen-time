@@ -319,6 +319,7 @@ class Account:
             "lock_in_seconds": (max(0, int(self.lock_after - now))
                                 if self.lock_after and reason and not self.paused else None),
             "bedtime": self.profile["bedtime"],
+            "budget_minutes": dict(self.profile["budget_minutes"]),
             "on_empty": self.profile["on_empty"],
             "earn": {
                 "enabled": earn["enabled"],
@@ -621,6 +622,26 @@ class Daemon:
                 safe = json.loads(json.dumps(self.config))
                 safe["pin"] = bool(safe.get("pin"))
                 return {"ok": True, "config": safe, "mode": self.layout.mode}
+
+        if command == "config.patch":
+            # A partial change to this account's own profile, so the settings
+            # window can flip one switch without resending the whole config.
+            patch = message.get("patch")
+            if not isinstance(patch, dict):
+                return {"ok": False, "error": "bad_patch"}
+            with self.lock:
+                key = account.profile_key
+                current = json.loads(json.dumps(self.config["profiles"].get(key, {})))
+                self.config["profiles"][key] = config_mod.sanitize_profile(
+                    config_mod.deep_merge(current, patch))
+                merged = config_mod.sanitize(self.config)
+                merged["pin"] = self.config.get("pin")
+                merged["demo"] = bool(self.config.get("demo"))
+                self.config = merged
+                config_mod.save(self.layout, merged)
+                for existing in self.accounts.values():
+                    existing.apply_config(merged)
+                return {"ok": True, "profile": key}
 
         if command == "config.set":
             incoming = message.get("config")

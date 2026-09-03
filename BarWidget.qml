@@ -264,6 +264,12 @@ Panel {
     }
   }
 
+  SettingsWindow {
+    id: settingsWindow
+    service: root.service
+    clientPath: root.clientPath
+  }
+
   // --- the pill -------------------------------------------------------
 
   visible: connected
@@ -572,6 +578,14 @@ Panel {
               text: root.phase === "paused" ? "Resume" : "Pause"
               focusable: true
               onClicked: root.togglePause()
+            }
+            Button {
+              text: "Settings"
+              focusable: true
+              onClicked: {
+                settingsWindow.show(root.parentPin)
+                root.close()
+              }
             }
           }
 

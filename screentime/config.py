@@ -177,6 +177,17 @@ def sanitize(raw):
     }
 
 
+def deep_merge(base, patch):
+    """Merge patch into base, recursing into dicts, replacing everything else."""
+    out = dict(base)
+    for key, value in patch.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
 def hash_pin(pin, salt=None, iterations=PBKDF2_ITERATIONS):
     salt = salt or secrets.token_hex(16)
     digest = hashlib.pbkdf2_hmac("sha256", str(pin).encode(), bytes.fromhex(salt), iterations)

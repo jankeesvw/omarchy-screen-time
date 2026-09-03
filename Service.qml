@@ -23,6 +23,12 @@ Item {
   property bool earnEnabled: false
   property int earnRoomSeconds: 0
   property var earnEvents: []        // [{t, seconds, q}], oldest first
+  property var earnOps: []
+  property var earnTables: []
+  property int earnCapMinutes: 0
+  property int earnSecondsPerCorrect: 30
+  property var budgetMinutes: ({})   // {mon: 60, ...}
+  property var bedtime: ({})         // {enabled, start, end}
 
   // The daemon streams an update roughly every tick. Between events the
   // remaining time keeps counting down locally, so the last minutes read as a
@@ -65,6 +71,12 @@ Item {
     earnEnabled = earn.enabled === true
     earnRoomSeconds = Number(earn.room_seconds) || 0
     earnEvents = Array.isArray(earn.events) ? earn.events : []
+    earnOps = Array.isArray(earn.ops) ? earn.ops : []
+    earnTables = Array.isArray(earn.tables) ? earn.tables : []
+    earnCapMinutes = Math.round((Number(earn.cap_seconds) || 0) / 60)
+    earnSecondsPerCorrect = Number(earn.seconds_per_correct) || 30
+    budgetMinutes = event.budget_minutes || {}
+    bedtime = event.bedtime || {}
   }
 
   Process {
