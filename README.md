@@ -56,6 +56,8 @@ listener {
 }
 ```
 
+That flag is a hint and not a switch, because it comes out of the child's own session and in the strict install there is nothing to authenticate it with: whatever can reach the socket can send it, the child included. So the daemon bounds it. One claim opens one window, saying it again does not refresh that window, a window lasts at most fifteen minutes, and all of them together may hold back at most an hour of a day. Past that the time counts on however often the flag arrives, and the refusal goes into the day's ledger. Only the window that is actually holding the clock back is charged: a child who really walked away has a locked or inactive session, and that stops the time by itself.
+
 Setting the clock back does not help. The counter runs on `CLOCK_BOOTTIME` and the wall clock may only nudge it by 300 seconds per tick; larger jumps are ignored and noted in that day's ledger. The last known time is kept on disk, so setting the clock back while the daemon is off does not work either.
 
 ## Earning minutes
@@ -117,7 +119,7 @@ A day can be blocked more than once, so `blocked_periods` is a list and bedtime 
 
 The parent PIN is stored hashed (pbkdf2, 600k rounds) and never travels as a command line argument, because `/proc/<pid>/cmdline` is readable by everyone on the machine.
 
-No PIN is not the same as no lock. Until one is set, everything that hands out or takes away time is refused with `no_pin_set`, and the panel says so and takes the first PIN right there. Only two things work without one: setting that first PIN, and the demo switch. In demo mode the PIN is `1234`, because a drawer that opens on any number would be worse than no drawer at all, and every write behind it stays a no-op.
+No PIN is not the same as no lock. Until one is set, everything that hands out or takes away time is refused with `no_pin_set`, and the panel says so and takes the first PIN right there. Two things work without one: setting that first PIN, and switching the demo *off*. Switching the demo on is a parent's, because a tick in demo mode returns before it counts and before it enforces, so an open `demo on` would be a way to stop the clock. In demo mode the PIN is `1234`, because a drawer that opens on any number would be worse than no drawer at all, and every write behind it stays a no-op. The demo flag has one door: the `demo` command. A config write cannot set it.
 
 ## Removing it
 

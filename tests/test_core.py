@@ -294,6 +294,126 @@ def test_blocked_periods():
     check("a window with no width is dropped", empty_window["blocked_periods"] == [])
 
 
+
+# --- the idle flag is a hint, not a switch ------------------------------
+
+def test_idle_window():
+    from screen_time import daemon, paths, state
+
+    section("the idle window")
+
+    class Fake:
+        idle_room = daemon.Account.idle_room
+        claim_idle = daemon.Account.claim_idle
+        age_idle = daemon.Account.age_idle
+        username = "kid"
+        log = staticmethod(lambda *a: None)
+        save = staticmethod(lambda: None)
+
+    base = tempfile.mkdtemp()
+    try:
+        os.environ["SCREEN_TIME_ROOT"] = base
+        layout = paths.detect()
+        store = state.Store(layout, os.getuid())
+
+        def fresh():
+            fake = Fake()
+            fake.day = store.load_day("2026-09-05", 3600, "kid")
+            fake.idle_since = None
+            return fake
+
+        now = time.time()
+
+        fake = fresh()
+        fake.claim_idle(True, now)
+        check("a claim opens the window", fake.idle_since == now)
+
+        # The bypass: repeating the claim used to push the expiry ahead of
+        # itself, so the window never closed and the clock never ran.
+        fake.claim_idle(True, now + 600)
+        check("repeating the claim does not refresh it", fake.idle_since == now)
+
+        fake.age_idle(now + daemon.IDLE_MAX_SECONDS + 1, 5, False)
+        check("the window runs out on its own", fake.idle_since is None)
+
+        # An open window costs the day's allowance, but only while the clock
+        # would otherwise be running.
+        fake = fresh()
+        fake.claim_idle(True, now)
+        fake.age_idle(now + 5, 5, False)
+        check("being really away costs nothing", fake.day.idle_seconds == 0)
+        fake.age_idle(now + 10, 5, True)
+        check("holding the clock back costs the allowance", fake.day.idle_seconds == 5)
+
+        fake = fresh()
+        fake.day.idle_seconds = daemon.IDLE_CREDIT_SECONDS
+        answer = fake.claim_idle(True, now)
+        check("a spent allowance refuses the claim", fake.idle_since is None and not answer["idle"])
+        check("the refusal is in the ledger",
+              any(e["kind"] == "idle_refused" for e in fake.day.ledger))
+
+        fake = fresh()
+        fake.claim_idle(True, now)
+        fake.day.idle_seconds = daemon.IDLE_CREDIT_SECONDS
+        fake.age_idle(now + 5, 5, True)
+        check("an open window closes once the allowance is gone", fake.idle_since is None)
+
+        fake = fresh()
+        fake.claim_idle(True, now)
+        fake.claim_idle(False, now + 5)
+        check("the session can still say it is back", fake.idle_since is None)
+    finally:
+        os.environ.pop("SCREEN_TIME_ROOT", None)
+        shutil.rmtree(base, ignore_errors=True)
+
+
+# --- the demo switch is a parent's, both ways --------------------------
+
+def test_demo_gate():
+    from screen_time import config, daemon
+
+    section("the demo switch")
+
+    class FakeDaemon:
+        check_pin = daemon.Daemon.check_pin
+
+        def __init__(self, config):
+            self.config = config
+
+    class FakeAccount:
+        def __init__(self, together=False):
+            self.together = together
+            self.pin_failures = 0
+            self.pin_blocked_until = 0.0
+
+    no_pin = FakeDaemon({})
+    kid = FakeAccount()
+
+    def refusal(daemon_, account, command, **message):
+        message["cmd"] = command
+        return daemon_.check_pin(account, message, command)
+
+    # The bypass: `demo on` stopped every tick before it counted and before it
+    # enforced, and it went through on a machine with no PIN.
+    check("demo on needs a PIN", refusal(no_pin, kid, "demo", value=True) is not None)
+    check("demo off does not", refusal(no_pin, kid, "demo", value=False) is None)
+    check("the first PIN can still be set", refusal(no_pin, kid, "pin.set") is None)
+    check("a grant still needs a PIN", refusal(no_pin, kid, "grant", minutes=10) is not None)
+
+    # Agreement mode waives the PIN on its own account's settings, but the demo
+    # silences the daemon for every account, so it is not part of that.
+    together = FakeAccount(together=True)
+    check("agreement mode waives the PIN on its own settings",
+          refusal(no_pin, together, "config.patch") is None)
+    check("agreement mode does not waive it on demo on",
+          refusal(no_pin, together, "demo", value=True) is not None)
+
+    # With a PIN configured, both directions go through the real check.
+    with_pin = FakeDaemon({"pin": config.hash_pin("4321")})
+    check("a wrong PIN is refused", refusal(with_pin, kid, "demo", value=True, pin="1111") is not None)
+    check("the right PIN is accepted", refusal(with_pin, kid, "demo", value=True, pin="4321") is None)
+
+
 def main():
     test_clock()
     test_paths()
@@ -301,6 +421,8 @@ def main():
     test_quiz()
     test_state()
     test_blocked_periods()
+    test_idle_window()
+    test_demo_gate()
     print()
     if FAILURES:
         print(f"{len(FAILURES)} failed: {', '.join(FAILURES)}")

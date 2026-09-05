@@ -34,6 +34,9 @@ class DayState:
         self.earned = max(0, int(raw.get("earned_seconds", 0)))
         self.granted = int(raw.get("granted_seconds", 0))
         self.correct = max(0, int(raw.get("correct_answers", 0)))
+        # What the idle flag held back today, so its daily allowance survives a
+        # restart of the daemon rather than starting over with it.
+        self.idle_seconds = max(0, int(raw.get("idle_seconds", 0)))
         self.warned = [int(w) for w in raw.get("warned", []) if isinstance(w, (int, float))]
         self.agreement_noted = bool(raw.get("agreement_noted", False))
         self.ledger = raw.get("ledger") if isinstance(raw.get("ledger"), list) else []
@@ -80,6 +83,7 @@ class DayState:
             "earned_seconds": self.earned,
             "granted_seconds": self.granted,
             "correct_answers": self.correct,
+            "idle_seconds": self.idle_seconds,
             "warned": self.warned,
             "agreement_noted": self.agreement_noted,
             "ledger": self.ledger,
@@ -93,6 +97,7 @@ class DayState:
             "earned_seconds": self.earned,
             "granted_seconds": self.granted,
             "correct_answers": self.correct,
+            "idle_seconds": self.idle_seconds,
         }
 
 

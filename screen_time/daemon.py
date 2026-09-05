@@ -19,7 +19,8 @@ from . import clock, config as config_mod, paths, quiz as quiz_mod, session, sta
 
 TICK_SECONDS = 5
 SAVE_EVERY = 30
-IDLE_MAX_SECONDS = 4 * 3600
+IDLE_MAX_SECONDS = 15 * 60      # how long one idle window may hold time back
+IDLE_CREDIT_SECONDS = 60 * 60   # and how much of a day all of them together may
 REST_RESET_SECONDS = 300  # five quiet minutes and a stretch starts over
 REFLECTION_LIMIT = 20
 PIN_LOCKOUT = [0, 0, 1, 5, 15, 60, 300]
@@ -177,15 +178,17 @@ class Account:
         self.rollover(now)
         self.watcher.poll()
 
-        if self.idle_since is not None and now - self.idle_since > IDLE_MAX_SECONDS:
-            self.log(f"idle flag for {self.username} expired, counting again")
-            self.idle_since = None
-
         if demo:
             return
 
-        if self.in_use and not self.paused and self.block_reason(now) is None:
-            step = min(elapsed, TICK_SECONDS * 4)
+        step = min(elapsed, TICK_SECONDS * 4)
+        # Everything except the idle flag: whether the clock would be running
+        # if nobody had claimed to be away.
+        counting = (self.watcher.in_use and not self.paused
+                    and self.block_reason(now) is None)
+        self.age_idle(now, step, counting)
+
+        if counting and self.idle_since is None:
             self.day.spend(step)
             self.stretch += step
             self.rest_since = None
@@ -204,6 +207,62 @@ class Account:
 
         if self.day.dirty and now - self.last_save > SAVE_EVERY:
             self.save()
+
+    # the idle window ----------------------------------------------------
+
+    @property
+    def idle_room(self):
+        """Seconds of idle the flag may still hold back today."""
+        return max(0, IDLE_CREDIT_SECONDS - self.day.idle_seconds)
+
+    def claim_idle(self, value, now):
+        """Take the session's word for being away, within a day's allowance.
+
+        The flag arrives from the child's own session, because hypridle there
+        runs the client. In strict mode there is nothing to authenticate that
+        with: anything that reaches the socket can send it, the child included.
+        So it is a hint and never a switch. One claim opens one window, a
+        second claim does not refresh it, the window is short, and what all of
+        them together hold back in a day is capped. Past that the time counts
+        on however often the flag arrives.
+        """
+        if not value:
+            self.idle_since = None
+            return {"ok": True, "idle": False, "idle_seconds_left": self.idle_room}
+        if self.idle_since is not None:
+            # Already open. Saying it again buys nothing, which is the point:
+            # a client that repeats the claim used to push the expiry ahead of
+            # itself and the window never closed.
+            return {"ok": True, "idle": True, "idle_seconds_left": self.idle_room}
+        if self.idle_room <= 0:
+            # Refused, and said in the ledger once. Once, because a client that
+            # keeps asking must not be able to fill a day's ledger or make the
+            # daemon write to disk on demand.
+            if not any(entry.get("kind") == "idle_refused" for entry in self.day.ledger):
+                self.day.record("idle_refused")
+                self.save()
+            return {"ok": True, "idle": False, "idle_seconds_left": 0}
+        self.idle_since = now
+        return {"ok": True, "idle": True, "idle_seconds_left": self.idle_room}
+
+    def age_idle(self, now, step, counting):
+        """Charge an open idle window to the day, and close it when it is due.
+
+        Charged only while the clock would otherwise be running: a child who
+        really did walk away has a locked or inactive session, and that stops
+        the time by itself without spending any of the allowance.
+        """
+        if self.idle_since is None:
+            return
+        if counting:
+            self.day.idle_seconds += int(step)
+            self.day.dirty = True
+        if now - self.idle_since > IDLE_MAX_SECONDS:
+            self.log(f"idle window for {self.username} ran out, counting again")
+            self.idle_since = None
+        elif self.idle_room <= 0:
+            self.log(f"idle allowance for {self.username} is spent, counting again")
+            self.idle_since = None
 
     def nudge(self, now):
         """The together mode's whole voice: information, never a threat.
@@ -652,16 +711,23 @@ class Daemon:
             # No PIN configured is not the same as no PIN required. Without
             # this the lock in the panel is decoration: every parent action
             # goes through on an empty config. Two things still have to work:
-            # setting that first PIN, or nobody could ever start, and the demo
-            # switch, or a machine without a PIN could never leave demo mode.
-            if command in ("pin.set", "demo"):
+            # setting that first PIN, or nobody could ever start.
+            if command == "pin.set":
+                return None
+            # Switching the demo off is the other one, or a machine without a
+            # PIN could never leave demo mode. Switching it ON is not the same
+            # favour: a tick in demo mode returns before it counts and before
+            # it enforces, so an open `demo on` is a way to stop the clock.
+            # Off without a PIN, on never.
+            if command == "demo" and not message.get("value"):
                 return None
             # Agreement mode has nothing to gate: no budget, no grants, and an
             # agreement that is meant to be written together in the first
             # place. A PIN there would only lock a family out of their own
             # words. A household that did set one keeps it, because the check
-            # below still runs.
-            if account is not None and account.together:
+            # below still runs. The demo is not part of that: it silences the
+            # daemon for every account, not only for this one.
+            if account is not None and account.together and command != "demo":
                 return None
             # The demo pretends to be a household that has a PIN, so the gate
             # is real there too and DEMO_PIN is the one that opens it. Letting
@@ -739,8 +805,7 @@ class Daemon:
 
         if command == "idle":
             with self.lock:
-                account.idle_since = now if message.get("value") else None
-                return {"ok": True, "idle": account.idle_since is not None}
+                return account.claim_idle(message.get("value"), now)
 
         if command == "reflect":
             # The child's own words about their own time. No PIN: the journal
@@ -846,7 +911,10 @@ class Daemon:
             with self.lock:
                 merged = config_mod.sanitize(incoming)
                 merged["pin"] = self.config.get("pin")
-                merged["demo"] = bool(incoming.get("demo", self.config.get("demo")))
+                # Not incoming["demo"]. A config write must not be a second,
+                # quieter way into demo mode; the `demo` command is the door
+                # and check_pin is the lock on it.
+                merged["demo"] = bool(self.config.get("demo"))
                 self.config = merged
                 config_mod.save(self.layout, merged)
                 for existing in self.accounts.values():
