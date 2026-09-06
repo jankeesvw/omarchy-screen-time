@@ -10,6 +10,7 @@ import shutil
 import sys
 import tempfile
 import time
+import unittest
 from datetime import date, datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
@@ -429,6 +430,18 @@ def main():
         return 1
     print("all good")
     return 0
+
+
+# `python3 tests/test_core.py` is the intended way to run this, but it is not
+# the way somebody trying the suite for the first time reaches for. Both of the
+# obvious alternatives used to mislead: `unittest discover` found no TestCase
+# and printed "NO TESTS RAN" while exiting 0, which reads as a green run rather
+# than as a suite that never executed, and pytest is not always installed. This
+# wrapper gives all three the same answer.
+class ScreenTimeCoreTests(unittest.TestCase):
+    def test_core(self):
+        FAILURES.clear()
+        self.assertEqual(main(), 0, "; ".join(FAILURES))
 
 
 if __name__ == "__main__":

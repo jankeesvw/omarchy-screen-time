@@ -147,7 +147,9 @@ In the strict install the same two live in `/etc/omarchy-screen-time/` and `/var
 python3 tests/test_core.py
 ```
 
-Runs without a daemon and without a desktop. Covers the clock that refuses to go back, the writes that do not follow a symlink, the config that clamps everything, and the math problems.
+`python3 -m unittest discover -s tests` and `pytest tests` run the same suite and give the same answer, so whichever one you reach for is fine.
+
+Runs without a daemon and without a desktop. Covers the clock that refuses to go back, the writes that do not follow a symlink, the config that clamps everything, the math problems, and the two ways a child could otherwise stop the clock: the idle window and the demo switch.
 
 For a test with a real daemon: point `SCREEN_TIME_ROOT` at an empty directory, set `SCREEN_TIME_TICK_SECONDS=1` and point `SCREEN_TIME_LOCK_COMMAND` at a script that only writes a line. Then you can walk the whole flow up to and including the lock without locking yourself out.
 
