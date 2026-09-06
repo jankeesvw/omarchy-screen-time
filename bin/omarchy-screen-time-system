@@ -1,0 +1,169 @@
+#!/usr/bin/env bash
+# The strict install: the daemon as a root service, so the account being
+# limited cannot switch it off.
+#
+# Everything root runs is copied to /usr/local/lib/omarchy-screen-time first
+# and owned by root. Running it straight out of the plugin directory would
+# mean root executing bytes the watched account can rewrite, and the moment
+# between agreeing to the sudo prompt and the service starting is long enough
+# for that to matter. The copy is the whole point of this script.
+#
+#   omarchy-screen-time-system install <account> [<account>...]
+#   omarchy-screen-time-system uninstall
+#   omarchy-screen-time-system status
+#
+# Run it in a terminal. It says what it is about to do and asks once.
+
+set -euo pipefail
+
+HERE="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd)"
+LIBDIR=/usr/local/lib/omarchy-screen-time
+UNIT=/etc/systemd/system/omarchy-screen-time.service
+GROUP=omarchy-screen-time
+STATE=/var/lib/omarchy-screen-time
+
+die() { printf 'screen-time: %s\n' "$1" >&2; exit 1; }
+
+need_root_tools() {
+  command -v systemctl >/dev/null 2>&1 || die "systemctl is not available"
+  command -v install >/dev/null 2>&1 || die "coreutils install is not available"
+}
+
+# Accounts are named on the command line and become both a group member and a
+# key in the config, so the shape is checked here rather than repaired.
+valid_account() {
+  [[ "$1" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || return 1
+  id -u -- "$1" >/dev/null 2>&1
+}
+
+cmd_install() {
+  [ "$#" -ge 1 ] || die "name at least one account: omarchy-screen-time-system install <account>"
+  local account
+  for account in "$@"; do
+    valid_account "$account" || die "not an account on this machine: $account"
+  done
+
+  # Naming the account you are sitting in front of is almost never what you
+  # meant here: this mode exists so the watched account cannot switch its own
+  # limits off, and doing that to your own login is how somebody locks
+  # themselves out of their own machine. It is a real setup on a shared
+  # machine, so it is a question rather than a refusal.
+  local me
+  me="$(id -un)"
+  for account in "$@"; do
+    [ "$account" = "$me" ] || continue
+    printf 'You are logged in as %s, and you are about to put %s under a\n' "$me" "$me"
+    printf 'daemon it cannot stop. That is deliberate for a child account and\n'
+    printf 'a mistake on your own. Nothing is limited until a profile is given\n'
+    printf 'in the panel, but the service will be root owned either way.\n\n'
+    if [ -t 0 ]; then
+      read -r -p "Really include $me? [y/N] " answer
+      [[ "$answer" == [yY]* ]] || die "nothing installed"
+    else
+      [[ "${FORCE:-}" == "1" ]] || die "refusing to add the current account without a terminal to ask in"
+    fi
+    printf '\n'
+  done
+
+  printf 'This installs Screen Time as a root service.\n\n'
+  printf '  a copy of the daemon, owned by root\n    %s\n' "$LIBDIR"
+  printf '  the unit that starts it\n    %s\n' "$UNIT"
+  printf '  the group allowed to reach the socket\n    %s\n' "$GROUP"
+  printf '  where the days are kept, root only\n    %s\n' "$STATE"
+  printf '\nAdded to the group: %s\n' "$*"
+  printf '\nThis sets up the machinery and nothing else. No account is limited by\n'
+  printf 'installing it: the daemon only watches accounts that appear under\n'
+  printf '"users" in the config, and that happens when a parent gives one a\n'
+  printf 'profile in the panel. Until then it runs and enforces nothing.\n'
+  printf '\nWhat does change is that once an account is given limits, it can no\n'
+  printf 'longer switch them off, which is the point of this mode.\n'
+  printf '\nUndo all of it with: %s uninstall\n\n' "$(basename -- "$0")"
+
+  if [ -t 0 ]; then
+    read -r -p 'Install it? [y/N] ' answer
+    [[ "$answer" == [yY]* ]] || die "nothing installed"
+  else
+    [[ "${FORCE:-}" == "1" ]] || die "run this in a terminal, or set FORCE=1 if you mean it from a script"
+  fi
+
+  need_root_tools
+
+  # The daemon and the module, and nothing else: no tests, no QML, no git.
+  # Root owned and not writable by anyone else, because this is what root
+  # executes from now on.
+  sudo install -d -o root -g root -m 0755 -- "$LIBDIR" "$LIBDIR/screen_time" "$LIBDIR/bin"
+  sudo install -o root -g root -m 0755 -- "$HERE/bin/omarchy-screen-timed" "$LIBDIR/bin/omarchy-screen-timed"
+  local f
+  for f in "$HERE"/screen_time/*.py; do
+    sudo install -o root -g root -m 0644 -- "$f" "$LIBDIR/screen_time/$(basename -- "$f")"
+  done
+  # A stale module left behind by an older version would still be importable.
+  sudo find "$LIBDIR/screen_time" -maxdepth 1 -name '*.py' -newermt '1970-01-01' -print0 \
+    | while IFS= read -r -d '' f; do
+        [ -f "$HERE/screen_time/$(basename -- "$f")" ] || sudo rm -f -- "$f"
+      done
+  sudo rm -rf -- "$LIBDIR/screen_time/__pycache__"
+
+  getent group "$GROUP" >/dev/null 2>&1 || sudo groupadd -r -- "$GROUP"
+  for account in "$@"; do
+    sudo gpasswd -a "$account" "$GROUP" >/dev/null
+    printf '  added %s to %s\n' "$account" "$GROUP"
+  done
+
+  # An existing unit that is not ours is an administrator's file, so it is
+  # backed up rather than replaced silently.
+  if [ -e "$UNIT" ] && ! grep -q 'omarchy-screen-time' -- "$UNIT" 2>/dev/null; then
+    sudo cp -a -- "$UNIT" "$UNIT.before-omarchy-screen-time"
+    printf '  kept the previous unit as %s.before-omarchy-screen-time\n' "$UNIT"
+  fi
+  sed "s|@BINDIR@|$LIBDIR/bin|g" -- "$HERE/systemd/omarchy-screen-time-system.service" \
+    | sudo install -o root -g root -m 0644 /dev/stdin "$UNIT"
+
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now omarchy-screen-time.service
+  printf '\n'
+  sudo systemctl --no-pager status omarchy-screen-time.service || true
+  printf '\nEach account has to log out and back in before its group membership\n'
+  printf 'takes effect, or it cannot reach the socket yet.\n'
+}
+
+cmd_uninstall() {
+  need_root_tools
+  printf 'This removes the root service and the group. The days stay in %s.\n\n' "$STATE"
+  if [ -t 0 ]; then
+    read -r -p 'Remove it? [y/N] ' answer
+    [[ "$answer" == [yY]* ]] || die "nothing removed"
+  else
+    [[ "${FORCE:-}" == "1" ]] || die "run this in a terminal, or set FORCE=1 if you mean it from a script"
+  fi
+
+  sudo systemctl disable --now omarchy-screen-time.service 2>/dev/null || true
+  # Only our own unit, identified by its content rather than by its name.
+  if [ -e "$UNIT" ] && grep -q 'omarchy-screen-time' -- "$UNIT" 2>/dev/null; then
+    sudo rm -f -- "$UNIT"
+  fi
+  if [ -e "$UNIT.before-omarchy-screen-time" ]; then
+    sudo mv -f -- "$UNIT.before-omarchy-screen-time" "$UNIT"
+    printf '  put the previous unit back\n'
+  fi
+  sudo systemctl daemon-reload
+
+  # The group goes, which is what takes the socket away from the accounts that
+  # were in it. Membership disappears with it, so no account is edited here.
+  getent group "$GROUP" >/dev/null 2>&1 && sudo groupdel -- "$GROUP" || true
+  # Literal path, ours, created by the install above.
+  [ -d "$LIBDIR" ] && sudo rm -rf -- "$LIBDIR"
+  printf '\nRemoved. The days and the statistics are still in %s.\n' "$STATE"
+  printf 'Delete them with: sudo rm -rf %s\n' "$STATE"
+}
+
+case "${1:-status}" in
+  install) shift; cmd_install "$@" ;;
+  uninstall) cmd_uninstall ;;
+  status)
+    systemctl --no-pager status omarchy-screen-time.service 2>/dev/null || true
+    printf '\ngroup %s: %s\n' "$GROUP" "$(getent group "$GROUP" || echo 'not present')"
+    printf 'daemon copy: %s\n' "$([ -d "$LIBDIR" ] && echo "$LIBDIR" || echo 'not installed')"
+    ;;
+  *) die "usage: $(basename -- "$0") install <account>... | uninstall | status" ;;
+esac

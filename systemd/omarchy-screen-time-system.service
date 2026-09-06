@@ -21,6 +21,22 @@ RuntimeDirectory=omarchy-screen-time
 RuntimeDirectoryMode=0755
 StateDirectory=omarchy-screen-time
 StateDirectoryMode=0700
+# The state stays root's. The watched account reaches it only through the
+# socket, which is group readable and nothing else: a child that can write
+# these files can edit the very numbers this mode exists to enforce.
+StateDirectoryQuota=64M
+# The daemon binds a socket, reads /proc for peer credentials and talks to
+# logind. It has no business anywhere else.
+NoNewPrivileges=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
 
 [Install]
 WantedBy=multi-user.target

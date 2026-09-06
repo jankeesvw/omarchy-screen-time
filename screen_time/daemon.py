@@ -8,6 +8,7 @@ user service and as a root service the child cannot stop.
 import json
 import math
 import os
+import grp
 import pwd
 import signal
 import socket
@@ -16,6 +17,15 @@ import time
 from datetime import datetime
 
 from . import clock, config as config_mod, paths, quiz as quiz_mod, session, state as state_mod
+
+# The group that may reach the system socket. The installer creates it and
+# puts the managed accounts in it; without it the socket stays root only.
+SOCKET_GROUP = "omarchy-screen-time"
+# One machine does not need more than this many clients at once, and a cap is
+# what keeps a local account from spending every thread and descriptor the
+# daemon has. Watch connections are the expensive ones: they stay open.
+MAX_CONNECTIONS = 32
+MAX_CONNECTIONS_PER_UID = 4
 
 TICK_SECONDS = 5
 SAVE_EVERY = 30
@@ -603,6 +613,11 @@ class Daemon:
         self.config = config_mod.load(layout)
         self.accounts = {}
         self.watchers = []
+        # Connection accounting, on its own lock: admit() runs on the accept
+        # thread and must not wait behind a tick that is holding self.lock.
+        self.conn_lock = threading.Lock()
+        self.conn_total = 0
+        self.conn_per_uid = {}
 
         self.clock = clock.Clock()
         self.server = None
@@ -626,8 +641,16 @@ class Daemon:
                 return self.accounts[uid]
             if uid not in self.managed_uids():
                 return None
-            owner = uid if self.layout.mode == "system" else None
-            account = Account(self.layout, uid, self.config, owner_uid=owner, log=self.log)
+            # In system mode every file stays root's. Handing the account
+            # directory to the child was the point of failure the review found:
+            # on a fresh install systemd creates the state directory as root, so
+            # a store expecting child ownership raises before it can chown, and
+            # the daemon restarts in a loop. Repair that by making it child
+            # owned and the child can edit the very numbers this mode exists to
+            # enforce: spent, granted, idle. Root owns the files; the child gets
+            # at them only through the socket, which answers a fixed set of
+            # commands and does its own checking.
+            account = Account(self.layout, uid, self.config, owner_uid=None, log=self.log)
             floor = account.meta.get("last_logical")
             if floor and floor > self.clock.now():
                 self.clock.logical = float(floor)
@@ -636,6 +659,12 @@ class Daemon:
             return account
 
     # socket -------------------------------------------------------------
+
+    def socket_gid(self):
+        try:
+            return grp.getgrnam(SOCKET_GROUP).gr_gid
+        except KeyError:
+            return None
 
     def listen(self):
         socket_path = self.layout.socket_path
@@ -648,7 +677,23 @@ class Daemon:
             socket_path.unlink()
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         _bind(server, socket_path)
-        os.chmod(socket_path, 0o666 if self.layout.mode == "system" else 0o600)
+        # 0660 and a group, rather than 0666. The managed accounts need to
+        # reach this, nobody else does, and a world-writable socket is an
+        # invitation to every process on the machine to open connections
+        # against it. Falling back to 0600 rather than to 0666 if the group is
+        # missing: a socket only root can reach is a broken install that says
+        # so, where one everybody can reach is a quiet hole.
+        if self.layout.mode == "system":
+            gid = self.socket_gid()
+            if gid is None:
+                os.chmod(socket_path, 0o600)
+                self.log("group %s is missing, socket is root only; run the installer"
+                         % SOCKET_GROUP)
+            else:
+                os.chown(socket_path, 0, gid)
+                os.chmod(socket_path, 0o660)
+        else:
+            os.chmod(socket_path, 0o600)
         server.listen(16)
         server.settimeout(1.0)
         self.server = server
@@ -662,9 +707,54 @@ class Daemon:
                 continue
             except OSError:
                 break
+            # Who is on the other end decides whether this is worth a thread at
+            # all, and that has to be settled before one is started. A thread
+            # per accepted connection with no ceiling is a local account away
+            # from spending every thread and descriptor the daemon has, and a
+            # daemon that has run out of both enforces nothing.
+            if not self.admit(conn):
+                try:
+                    proto_write(conn, {"ok": False, "error": "busy"})
+                except OSError:
+                    pass
+                try:
+                    conn.close()
+                except OSError:
+                    pass
+                continue
             threading.Thread(target=self.handle, args=(conn,), daemon=True).start()
 
+    def admit(self, conn):
+        """Take the connection, or refuse it and say so by returning False."""
+        try:
+            uid = proto_peer_uid(conn)
+        except OSError:
+            return False
+        # An unmanaged account has nothing to ask this daemon and, in system
+        # mode, no business holding a watch stream open. Root is let through so
+        # a parent tool and the installer's own check keep working.
+        if self.layout.mode == "system" and uid != 0 and uid not in self.managed_uids():
+            return False
+        with self.conn_lock:
+            if self.conn_total >= MAX_CONNECTIONS:
+                return False
+            if self.conn_per_uid.get(uid, 0) >= MAX_CONNECTIONS_PER_UID:
+                return False
+            self.conn_total += 1
+            self.conn_per_uid[uid] = self.conn_per_uid.get(uid, 0) + 1
+        return True
+
+    def release(self, uid):
+        with self.conn_lock:
+            self.conn_total = max(0, self.conn_total - 1)
+            left = self.conn_per_uid.get(uid, 1) - 1
+            if left > 0:
+                self.conn_per_uid[uid] = left
+            else:
+                self.conn_per_uid.pop(uid, None)
+
     def handle(self, conn):
+        uid = None
         try:
             conn.settimeout(30)
             uid = proto_peer_uid(conn)
@@ -677,6 +767,12 @@ class Daemon:
                     proto_write(conn, {"ok": False, "error": "bad_request"})
                     continue
                 if message.get("cmd") == "watch":
+                    # Only for an account this daemon actually tracks. It used
+                    # to come before that check, so an unmanaged caller could
+                    # hold a stream open for as long as it liked.
+                    if self.account_for(uid) is None:
+                        proto_write(conn, {"ok": False, "error": "not_managed"})
+                        return
                     self.stream(conn, uid)
                     return
                 proto_write(conn, self.dispatch(uid, message))
@@ -686,6 +782,8 @@ class Daemon:
             except OSError:
                 pass
         finally:
+            if uid is not None:
+                self.release(uid)
             try:
                 conn.close()
             except OSError:
@@ -804,6 +902,16 @@ class Daemon:
                 return account.quiz_answer(message.get("id"), message.get("answer"), now)
 
         if command == "idle":
+            # The idle flag pauses the clock, so in strict mode it is the one
+            # thing the watched account must not be able to send. It is a
+            # session hint, and in this mode the session belongs to the child:
+            # accepting it here would hand back up to IDLE_CREDIT_SECONDS a day
+            # of exactly the enforcement this mode exists for. The bounded
+            # window stays for the user-mode daemon, where the account running
+            # it is the account being tracked anyway and a child who can send
+            # this can also stop the unit.
+            if self.layout.mode == "system":
+                return {"ok": False, "error": "not_permitted"}
             with self.lock:
                 return account.claim_idle(message.get("value"), now)
 

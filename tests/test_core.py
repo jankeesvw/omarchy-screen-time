@@ -6,9 +6,11 @@ Run with: python3 tests/test_core.py
 
 import json
 import os
+import pathlib
 import shutil
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from datetime import date, datetime, timedelta
@@ -415,6 +417,96 @@ def test_demo_gate():
     check("the right PIN is accepted", refusal(with_pin, kid, "demo", value=True, pin="4321") is None)
 
 
+
+def test_strict_mode():
+    """The three things the security review found in the root service."""
+    from screen_time import daemon, paths
+
+    section("strict mode")
+
+    root = pathlib.Path(tempfile.mkdtemp())
+    try:
+        # A layout that says system without needing a system to run on.
+        layout = paths.Layout("system", root / "config.json",
+                              root / "state", root / "run" / "sock")
+
+        # 1. The account directory stays root's. The bug was that the store
+        # asked for the child as owner: on a fresh install systemd makes that
+        # directory as root, so the store raised and the daemon restarted, and
+        # repairing it the other way let the child edit its own spent time.
+        src = pathlib.Path("screen_time/daemon.py").read_text()
+        marker = "account = Account(self.layout, uid, self.config, owner_uid=None"
+        check("the account store is never owned by the child", marker in src)
+
+        # A directory owned by whoever is running this, which stands in for
+        # root owning it on a real install, has to be accepted rather than
+        # refused.
+        state_dir = layout.user_state_dir(1000)
+        paths.private_dir(state_dir)
+        check("a fresh directory of our own is accepted",
+              state_dir.is_dir() and (state_dir.stat().st_mode & 0o777) == 0o700)
+        paths.private_dir(state_dir)
+        check("and an existing one is accepted again", state_dir.is_dir())
+
+        # 2. Idle is refused in system mode. It pauses the clock, and in this
+        # mode the session it would come from belongs to the child. Asked of
+        # the real dispatch rather than of the source text.
+        d = daemon.Daemon.__new__(daemon.Daemon)
+        d.layout = layout
+        d.lock = threading.RLock()
+        d.config = {}
+        d.clock = type("C", (), {"now": staticmethod(lambda: 0.0)})()
+        # A managed account, because an unmanaged one is refused a step earlier
+        # and would prove nothing: the case that matters is the child this mode
+        # is watching asking for its clock to stop.
+        fake_account = type("A", (), {"claim_idle": staticmethod(
+            lambda *a: {"ok": True, "idle": True})})()
+        d.accounts = {1000: fake_account}
+        answer = daemon.Daemon.dispatch(d, 1000, {"cmd": "idle", "value": True})
+        check("system mode refuses a child idle claim",
+              answer.get("ok") is False and answer.get("error") == "not_permitted",
+              repr(answer))
+
+        # 3. Connections are counted and capped, and the peer is looked at
+        # before a thread exists, not inside one.
+        check("there is a connection ceiling",
+              "MAX_CONNECTIONS" in src and "MAX_CONNECTIONS_PER_UID" in src)
+        check("the peer is admitted before a thread is started",
+              src.index("if not self.admit(conn):")
+              < src.index("threading.Thread(target=self.handle"))
+        check("watch is refused for an unmanaged account",
+              "if self.account_for(uid) is None:" in src)
+
+        # The ceiling actually refuses once it is reached.
+        d.conn_lock = threading.Lock()
+        d.conn_total = daemon.MAX_CONNECTIONS
+        d.conn_per_uid = {}
+        d.managed_uids = lambda: [1000]
+        class FakeConn:
+            pass
+        import screen_time.daemon as dmod
+        real_peer = dmod.proto_peer_uid
+        dmod.proto_peer_uid = staticmethod(lambda conn: 1000)
+        try:
+            check("a full daemon refuses another connection",
+                  daemon.Daemon.admit(d, FakeConn()) is False)
+            d.conn_total = 0
+            d.conn_per_uid = {1000: daemon.MAX_CONNECTIONS_PER_UID}
+            check("and refuses a uid that already holds its share",
+                  daemon.Daemon.admit(d, FakeConn()) is False)
+            d.conn_per_uid = {}
+            check("but takes the next one when there is room",
+                  daemon.Daemon.admit(d, FakeConn()) is True)
+        finally:
+            dmod.proto_peer_uid = real_peer
+
+        # The socket is not world writable any more.
+        check("the system socket is not 0666", "0o666" not in src)
+        check("and it is group readable instead", "0o660" in src)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def main():
     test_clock()
     test_paths()
@@ -424,6 +516,7 @@ def main():
     test_blocked_periods()
     test_idle_window()
     test_demo_gate()
+    test_strict_mode()
     print()
     if FAILURES:
         print(f"{len(FAILURES)} failed: {', '.join(FAILURES)}")

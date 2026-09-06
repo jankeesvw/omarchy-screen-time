@@ -38,7 +38,17 @@ omarchy-screen-time watch                        # NDJSON stream for the widget
 
 **Soft.** `bin/omarchy-screen-time-service enable` sets the daemon up as a user service in the child's session. Everything lives under `~/.local/state/omarchy-screen-time` and `~/.config/omarchy-screen-time`. A child who knows `systemctl --user stop` can turn this off. For young children that is fine: it works like a kitchen timer you can see running.
 
-**Strict.** As soon as `/etc/omarchy-screen-time/` exists, the same daemon runs as root, with the state in `/var/lib/omarchy-screen-time/` and the socket in `/run/omarchy-screen-time/`. The child cannot write the files and cannot stop the unit. The install script for this is still to come.
+**Strict.** The same daemon as a root service, with the state in `/var/lib/omarchy-screen-time/` and the socket in `/run/omarchy-screen-time/`. The child cannot write the files and cannot stop the unit.
+
+```bash
+bin/omarchy-screen-time-system install <account>
+```
+
+Run it in a terminal. It says what it is about to do, asks once, and then copies the daemon to `/usr/local/lib/omarchy-screen-time/` owned by root before anything starts. That copy is the point: running it out of the plugin directory would mean root executing files the watched account can rewrite. It also creates a group called `omarchy-screen-time`, puts the named accounts in it, and gives the socket to that group at mode 0660 rather than to everyone. Each account has to log out and back in before its new group takes effect.
+
+In this mode the state is root's and stays root's, and the idle flag is refused: pausing the clock is not something the account being watched gets to ask for. Both of those are the difference between a limit and a suggestion.
+
+`bin/omarchy-screen-time-system uninstall` stops the service, removes the unit and the group, and deletes the copied daemon. The days stay in `/var/lib/omarchy-screen-time/` until you delete them yourself.
 
 The daemon itself does not know which mode it runs in: `screen_time/paths.py` decides that once, and no path is built anywhere else in the code.
 
@@ -56,7 +66,7 @@ listener {
 }
 ```
 
-That flag is a hint and not a switch, because it comes out of the child's own session and in the strict install there is nothing to authenticate it with: whatever can reach the socket can send it, the child included. So the daemon bounds it. One claim opens one window, saying it again does not refresh that window, a window lasts at most fifteen minutes, and all of them together may hold back at most an hour of a day. Past that the time counts on however often the flag arrives, and the refusal goes into the day's ledger. Only the window that is actually holding the clock back is charged: a child who really walked away has a locked or inactive session, and that stops the time by itself.
+That flag is a hint and not a switch, because it comes out of the child's own session. In the strict install it is refused outright, since there the session belongs to the account being watched. In the user install it is bounded instead, because there the account running the daemon is the account being tracked anyway. So the daemon bounds it. One claim opens one window, saying it again does not refresh that window, a window lasts at most fifteen minutes, and all of them together may hold back at most an hour of a day. Past that the time counts on however often the flag arrives, and the refusal goes into the day's ledger. Only the window that is actually holding the clock back is charged: a child who really walked away has a locked or inactive session, and that stops the time by itself.
 
 Setting the clock back does not help. The counter runs on `CLOCK_BOOTTIME` and the wall clock may only nudge it by 300 seconds per tick; larger jumps are ignored and noted in that day's ledger. The last known time is kept on disk, so setting the clock back while the daemon is off does not work either.
 
@@ -127,11 +137,14 @@ No PIN is not the same as no lock. Until one is set, everything that hands out o
 omarchy plugin remove jankeesvw.screen-time
 ```
 
-If you enabled the soft install, turn the service off first, or a unit is left pointing at a directory that is gone:
+Turn the service off first, or a unit is left pointing at a directory that is gone. Which command depends on which install you did:
 
 ```bash
-bin/omarchy-screen-time-service disable
+bin/omarchy-screen-time-service disable        # the soft install
+bin/omarchy-screen-time-system uninstall       # the strict install, needs sudo
 ```
+
+The strict uninstall also removes the `omarchy-screen-time` group and the copied daemon in `/usr/local/lib/omarchy-screen-time/`, so the accounts that were in that group lose their way to the socket. Do it before removing the plugin, because both commands live in the plugin directory.
 
 That leaves the child's own record behind, and you should know what it is before you decide to keep it. The config, including the hashed parent PIN and the profiles, sits in `~/.config/omarchy-screen-time/`. The day by day history sits in `~/.local/state/omarchy-screen-time/`: minutes used per day, the questions that were answered and the ones that went wrong, and any notes the child wrote in agreement mode. None of it leaves the machine, and nothing is sent anywhere. To delete it as well:
 
@@ -139,7 +152,7 @@ That leaves the child's own record behind, and you should know what it is before
 rm -rf ~/.config/omarchy-screen-time ~/.local/state/omarchy-screen-time
 ```
 
-In the strict install the same two live in `/etc/omarchy-screen-time/` and `/var/lib/omarchy-screen-time/`, and removing those needs root.
+In the strict install the same two live in `/etc/omarchy-screen-time/` and `/var/lib/omarchy-screen-time/`, both owned by root, and the uninstall above leaves them alone on purpose: they are the record of somebody's days, not something a removal should take with it. Delete them with `sudo rm -rf /etc/omarchy-screen-time /var/lib/omarchy-screen-time` when you are sure.
 
 ## Testing
 
@@ -155,4 +168,4 @@ For a test with a real daemon: point `SCREEN_TIME_ROOT` at an empty directory, s
 
 ## What comes next
 
-The install script for the strict mode, and maybe an "unlimited apps" list and buttons on the lock screen itself.
+Maybe an "unlimited apps" list, and buttons on the lock screen itself.
