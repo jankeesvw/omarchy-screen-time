@@ -21,6 +21,11 @@ LIBDIR=/usr/local/lib/omarchy-screen-time
 UNIT=/etc/systemd/system/omarchy-screen-time.service
 GROUP=omarchy-screen-time
 STATE=/var/lib/omarchy-screen-time
+# The daemon picks its mode by looking for this directory, so creating it is
+# what makes the service the strict one. Without it a root service still comes
+# up in user mode, reads root's own config and puts its socket in /run/user/0,
+# which enforces nothing and says nothing about it either.
+ETC=/etc/omarchy-screen-time
 
 die() { printf 'screen-time: %s\n' "$1" >&2; exit 1; }
 
@@ -68,6 +73,7 @@ cmd_install() {
   printf 'This installs Screen Time as a root service.\n\n'
   printf '  a copy of the daemon, owned by root\n    %s\n' "$LIBDIR"
   printf '  the unit that starts it\n    %s\n' "$UNIT"
+  printf '  the config that switches the daemon to strict mode\n    %s\n' "$ETC"
   printf '  the group allowed to reach the socket\n    %s\n' "$GROUP"
   printf '  where the days are kept, root only\n    %s\n' "$STATE"
   printf '\nAdded to the group: %s\n' "$*"
@@ -104,6 +110,18 @@ cmd_install() {
       done
   sudo rm -rf -- "$LIBDIR/screen_time/__pycache__"
 
+  # The config directory is what detect() looks for. Root owned, 0755 so the
+  # panel can read it, with the file itself 0644: it holds profiles and the
+  # hashed parent PIN, and the daemon is the only thing that writes it.
+  sudo install -d -o root -g root -m 0755 -- "$ETC"
+  if [ ! -e "$ETC/config.json" ]; then
+    printf '{\n  "version": 1,\n  "users": {}\n}\n' \
+      | sudo install -o root -g root -m 0644 /dev/stdin "$ETC/config.json"
+    printf '  wrote a starting config with no accounts under limits\n'
+  else
+    printf '  kept the config that was already at %s\n' "$ETC/config.json"
+  fi
+
   getent group "$GROUP" >/dev/null 2>&1 || sudo groupadd -r -- "$GROUP"
   for account in "$@"; do
     sudo gpasswd -a "$account" "$GROUP" >/dev/null
@@ -120,7 +138,13 @@ cmd_install() {
     | sudo install -o root -g root -m 0644 /dev/stdin "$UNIT"
 
   sudo systemctl daemon-reload
-  sudo systemctl enable --now omarchy-screen-time.service
+  sudo systemctl enable omarchy-screen-time.service >/dev/null
+  # restart rather than `enable --now`: --now only starts a unit that is not
+  # running, so installing over an existing install left the old daemon in
+  # place with the new unit and the new config on disk and nothing using
+  # either. Running this twice has to end with the daemon that matches what
+  # was just written.
+  sudo systemctl restart omarchy-screen-time.service
   printf '\n'
   sudo systemctl --no-pager status omarchy-screen-time.service || true
   printf '\nEach account has to log out and back in before its group membership\n'
@@ -153,6 +177,17 @@ cmd_uninstall() {
   getent group "$GROUP" >/dev/null 2>&1 && sudo groupdel -- "$GROUP" || true
   # Literal path, ours, created by the install above.
   [ -d "$LIBDIR" ] && sudo rm -rf -- "$LIBDIR"
+  # The config directory goes, because its presence is what selects strict
+  # mode: leaving it behind means a user-mode daemon would still come up as
+  # the strict one. The config file inside it is kept next to the state,
+  # since it holds the profiles and the PIN somebody set up.
+  if [ -f "$ETC/config.json" ]; then
+    sudo install -d -o root -g root -m 0700 -- "$STATE"
+    sudo mv -f -- "$ETC/config.json" "$STATE/config.json.kept"
+    printf '  kept the config as %s/config.json.kept\n' "$STATE"
+  fi
+  [ -d "$ETC" ] && sudo rmdir --ignore-fail-on-non-empty -- "$ETC"
+
   printf '\nRemoved. The days and the statistics are still in %s.\n' "$STATE"
   printf 'Delete them with: sudo rm -rf %s\n' "$STATE"
 }

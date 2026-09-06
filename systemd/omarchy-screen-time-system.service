@@ -24,7 +24,12 @@ StateDirectoryMode=0700
 # The state stays root's. The watched account reaches it only through the
 # socket, which is group readable and nothing else: a child that can write
 # these files can edit the very numbers this mode exists to enforce.
-StateDirectoryQuota=64M
+#
+# No StateDirectoryQuota here: it needs filesystem quota support, and on a
+# plain btrfs root systemd cannot set it up and refuses to start the unit at
+# all, with "Failed to set up special execution directory in /var/lib: No such
+# device" and a restart loop behind it. A days-worth of JSON does not need a
+# quota badly enough to make the service depend on how the disk was formatted.
 # The daemon binds a socket, reads /proc for peer credentials and talks to
 # logind. It has no business anywhere else.
 NoNewPrivileges=yes
