@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Write MANIFEST.sha256: the hashes of everything the strict install puts
+# where root will execute or read it.
+#
+# The manifest is committed, so the bytes root installs are the bytes the
+# commit was reviewed at. Run this after changing any published file and
+# commit the result alongside it; `install` refuses to run when the two
+# disagree.
+#
+#   bin/screen-time-manifest          write MANIFEST.sha256
+#   bin/screen-time-manifest --check  verify without writing (exit 1 on drift)
+
+set -euo pipefail
+
+HERE="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd)"
+cd -- "$HERE"
+
+# Kept in step with published_paths() in bin/omarchy-screen-time-system.
+paths() {
+  printf '%s\n' bin/omarchy-screen-timed
+  printf '%s\n' systemd/omarchy-screen-time-system.service
+  # Sorted, so the manifest does not churn on filesystem order.
+  find screen_time -maxdepth 1 -name '*.py' -type f -print | LC_ALL=C sort
+}
+
+if [ "${1:-}" = "--check" ]; then
+  [ -f MANIFEST.sha256 ] || { printf 'no MANIFEST.sha256\n' >&2; exit 1; }
+  if diff -u MANIFEST.sha256 <(paths | xargs -r sha256sum) >/dev/null; then
+    printf 'MANIFEST.sha256 is current\n'
+  else
+    printf 'MANIFEST.sha256 does not match the tree:\n' >&2
+    diff -u MANIFEST.sha256 <(paths | xargs -r sha256sum) >&2 || true
+    exit 1
+  fi
+  exit 0
+fi
+
+paths | xargs -r sha256sum > MANIFEST.sha256
+printf 'wrote MANIFEST.sha256 (%s files)\n' "$(wc -l < MANIFEST.sha256)"

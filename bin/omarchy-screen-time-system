@@ -32,6 +32,30 @@ die() { printf 'screen-time: %s\n' "$1" >&2; exit 1; }
 need_root_tools() {
   command -v systemctl >/dev/null 2>&1 || die "systemctl is not available"
   command -v install >/dev/null 2>&1 || die "coreutils install is not available"
+  command -v python3 >/dev/null 2>&1 || die "python3 is not available"
+}
+
+# What root is about to read, said out loud before the question is asked, so
+# the answer covers a tree somebody could look at. This is the courtesy half:
+# root checks the same manifest again as it reads each file, and that half is
+# what actually binds the install to reviewed bytes.
+show_source() {
+  [ -f "$HERE/MANIFEST.sha256" ] \
+    || die "MANIFEST.sha256 is missing; run bin/screen-time-manifest and commit it"
+
+  local sha drift
+  if sha=$(git -C "$HERE" rev-parse --short HEAD 2>/dev/null); then
+    drift=$(git -C "$HERE" status --porcelain -- \
+      MANIFEST.sha256 bin/omarchy-screen-timed bin/screen-time-publish \
+      screen_time systemd 2>/dev/null)
+    if [ -n "$drift" ]; then
+      printf 'These files differ from commit %s, which is what was reviewed:\n\n' "$sha"
+      printf '%s\n\n' "$drift"
+      printf 'Install anyway only if you made those changes yourself.\n\n'
+    else
+      printf 'Installing the daemon as committed at %s.\n\n' "$sha"
+    fi
+  fi
 }
 
 # Accounts are named on the command line and become both a group member and a
@@ -47,6 +71,14 @@ cmd_install() {
   for account in "$@"; do
     valid_account "$account" || die "not an account on this machine: $account"
   done
+
+  # Read before anything is asked or printed, so that what root ends up
+  # running is the publisher this run started with, whatever happens to the
+  # checkout while the question is on screen.
+  local publisher
+  publisher=$(cat -- "$HERE/bin/screen-time-publish") \
+    || die "cannot read bin/screen-time-publish"
+  show_source
 
   # Naming the account you are sitting in front of is almost never what you
   # meant here: this mode exists so the watched account cannot switch its own
@@ -94,21 +126,30 @@ cmd_install() {
 
   need_root_tools
 
-  # The daemon and the module, and nothing else: no tests, no QML, no git.
-  # Root owned and not writable by anyone else, because this is what root
-  # executes from now on.
-  sudo install -d -o root -g root -m 0755 -- "$LIBDIR" "$LIBDIR/screen_time" "$LIBDIR/bin"
-  sudo install -o root -g root -m 0755 -- "$HERE/bin/omarchy-screen-timed" "$LIBDIR/bin/omarchy-screen-timed"
-  local f
-  for f in "$HERE"/screen_time/*.py; do
-    sudo install -o root -g root -m 0644 -- "$f" "$LIBDIR/screen_time/$(basename -- "$f")"
-  done
-  # A stale module left behind by an older version would still be importable.
-  sudo find "$LIBDIR/screen_time" -maxdepth 1 -name '*.py' -newermt '1970-01-01' -print0 \
-    | while IFS= read -r -d '' f; do
-        [ -f "$HERE/screen_time/$(basename -- "$f")" ] || sudo rm -f -- "$f"
-      done
-  sudo rm -rf -- "$LIBDIR/screen_time/__pycache__"
+  # An existing unit that is not ours is an administrator's file, so it is
+  # backed up before the publish below writes over it.
+  if [ -e "$UNIT" ] && ! grep -q 'omarchy-screen-time' -- "$UNIT" 2>/dev/null; then
+    sudo cp -a -- "$UNIT" "$UNIT.before-omarchy-screen-time"
+    printf '  kept the previous unit as %s.before-omarchy-screen-time\n' "$UNIT"
+  fi
+
+  # The daemon, the modules and the unit, and nothing else: no tests, no QML,
+  # no git. Root owned and not writable by anyone else, because this is what
+  # root executes from now on.
+  #
+  # One privileged operation reads each file once, hashes what it read against
+  # MANIFEST.sha256, and writes those same bytes. Copying them here with `sudo
+  # install` instead would re-open the checkout after this script had looked
+  # at it, and the checkout is writable without root: whatever replaced a
+  # source in between would be what root installed and ran from then on.
+  # bin/screen-time-publish carries the longer version of that argument.
+  #
+  # The publisher is fed on stdin rather than executed from the checkout, so
+  # root runs the bytes read at the top of this function, before the question
+  # was answered, rather than whatever is at that path by now.
+  printf '%s' "$publisher" \
+    | sudo env ST_HERE="$HERE" ST_LIBDIR="$LIBDIR" ST_UNIT="$UNIT" python3 - \
+    || die "nothing was installed"
 
   # The config directory is what detect() looks for. Root owned, 0755 so the
   # panel can read it, with the file itself 0644: it holds profiles and the
@@ -127,15 +168,6 @@ cmd_install() {
     sudo gpasswd -a "$account" "$GROUP" >/dev/null
     printf '  added %s to %s\n' "$account" "$GROUP"
   done
-
-  # An existing unit that is not ours is an administrator's file, so it is
-  # backed up rather than replaced silently.
-  if [ -e "$UNIT" ] && ! grep -q 'omarchy-screen-time' -- "$UNIT" 2>/dev/null; then
-    sudo cp -a -- "$UNIT" "$UNIT.before-omarchy-screen-time"
-    printf '  kept the previous unit as %s.before-omarchy-screen-time\n' "$UNIT"
-  fi
-  sed "s|@BINDIR@|$LIBDIR/bin|g" -- "$HERE/systemd/omarchy-screen-time-system.service" \
-    | sudo install -o root -g root -m 0644 /dev/stdin "$UNIT"
 
   sudo systemctl daemon-reload
   sudo systemctl enable omarchy-screen-time.service >/dev/null

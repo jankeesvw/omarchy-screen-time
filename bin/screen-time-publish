@@ -1,0 +1,234 @@
+#!/usr/bin/env python3
+"""Publish the strict-mode files, as root, from bytes verified in memory.
+
+The install used to run `sudo install` straight out of the plugin checkout.
+The checkout is writable without root, so anything in the installing user's
+session could replace a source between the sudo prompt and the moment
+`install` opened it, and the substituted bytes would land in the root-owned
+copy and run as root from then on. The copy was supposed to be the whole
+point, and it was reading from the mutable tree.
+
+So the read happens once, here, inside the single privileged operation:
+
+  * every path is opened relative to its parent directory with O_NOFOLLOW at
+    each component, so no symlink anywhere along it can redirect the read;
+  * the bytes are held in memory and hashed there;
+  * the hash is compared against the committed MANIFEST.sha256;
+  * publication writes those same in-memory bytes. Nothing is opened twice,
+    so there is no window between checking a file and installing it.
+
+A mismatch anywhere publishes nothing at all. Read this with
+`bin/screen-time-manifest`, which writes the manifest, and with the
+regression test in tests/test_publish.py, which swaps a source after the
+manifest is read and proves the swapped bytes cannot reach the target.
+
+Environment:
+  ST_HERE    the plugin checkout to publish from
+  ST_LIBDIR  where the root-owned copy goes
+  ST_UNIT    the systemd unit file to write
+"""
+
+from __future__ import annotations
+
+import hashlib
+import os
+import stat
+import sys
+import tempfile
+
+BIN_NAME = "omarchy-screen-timed"
+UNIT_SOURCE = "systemd/omarchy-screen-time-system.service"
+MANIFEST = "MANIFEST.sha256"
+# The unit names the daemon by absolute path; the token is replaced at write
+# time so the same reviewed bytes work wherever LIBDIR is.
+BINDIR_TOKEN = "@BINDIR@"
+
+
+class Refused(Exception):
+    """Nothing has been published, and nothing will be."""
+
+
+def _open_component(name: str, dir_fd: int, *, directory: bool) -> int:
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+    if directory:
+        flags |= os.O_DIRECTORY
+    try:
+        return os.open(name, flags, dir_fd=dir_fd)
+    except OSError as exc:
+        raise Refused(f"{name}: {exc.strerror}") from exc
+
+
+def read_exactly_once(root_fd: int, relpath: str) -> bytes:
+    """Read one regular file, refusing a symlink at any component."""
+    parts = relpath.split("/")
+    fds = [root_fd]
+    try:
+        for name in parts[:-1]:
+            fds.append(_open_component(name, fds[-1], directory=True))
+        fd = _open_component(parts[-1], fds[-1], directory=False)
+    except Refused:
+        raise
+    finally:
+        for extra in fds[1:]:
+            os.close(extra)
+
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise Refused(f"{relpath}: not a regular file")
+        chunks = []
+        while True:
+            chunk = os.read(fd, 1 << 20)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
+
+
+def parse_manifest(raw: bytes) -> dict[str, str]:
+    wanted: dict[str, str] = {}
+    for number, line in enumerate(raw.decode("utf-8").splitlines(), 1):
+        line = line.strip()
+        if not line:
+            continue
+        digest, _, path = line.partition("  ")
+        if len(digest) != 64 or not path:
+            raise Refused(f"{MANIFEST}:{number}: not a sha256sum line")
+        # A path that climbs out of the checkout would be read from wherever
+        # it landed, so the manifest only ever names things below it.
+        if path.startswith("/") or ".." in path.split("/"):
+            raise Refused(f"{MANIFEST}:{number}: {path} leaves the checkout")
+        wanted[path] = digest
+    if not wanted:
+        raise Refused(f"{MANIFEST}: empty")
+    return wanted
+
+
+def collect(here: str) -> dict[str, bytes]:
+    """Read and verify every published file. Returns path -> bytes."""
+    root_fd = os.open(here, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        wanted = parse_manifest(read_exactly_once(root_fd, MANIFEST))
+        payload: dict[str, bytes] = {}
+        for path, digest in sorted(wanted.items()):
+            data = read_exactly_once(root_fd, path)
+            actual = hashlib.sha256(data).hexdigest()
+            if actual != digest:
+                raise Refused(
+                    f"{path} is not the reviewed file\n"
+                    f"  manifest {digest}\n"
+                    f"  on disk  {actual}"
+                )
+            payload[path] = data
+    finally:
+        os.close(root_fd)
+
+    if f"bin/{BIN_NAME}" not in payload:
+        raise Refused(f"{MANIFEST} does not cover bin/{BIN_NAME}")
+    if UNIT_SOURCE not in payload:
+        raise Refused(f"{MANIFEST} does not cover {UNIT_SOURCE}")
+    modules = [p for p in payload if p.startswith("screen_time/")]
+    if not modules:
+        raise Refused(f"{MANIFEST} does not cover any screen_time module")
+    return payload
+
+
+# Ownership is set when there is ownership to set. Running as root is the
+# real case and gives root:root; the regression test runs the same code as an
+# ordinary user against a temporary target, where chown to root would fail and
+# would prove nothing about the checking above it.
+AS_ROOT = os.geteuid() == 0
+
+
+def write_file(target: str, data: bytes, mode: int) -> None:
+    """Write data at target, root owned, replacing atomically."""
+    directory = os.path.dirname(target)
+    fd, temporary = tempfile.mkstemp(dir=directory, prefix=".publish.")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if AS_ROOT:
+            os.chown(temporary, 0, 0)
+        os.chmod(temporary, mode)
+        os.replace(temporary, target)
+    except BaseException:
+        os.unlink(temporary)
+        raise
+
+
+def make_dir(path: str) -> None:
+    os.makedirs(path, exist_ok=True)
+    if AS_ROOT:
+        os.chown(path, 0, 0)
+    os.chmod(path, 0o755)
+
+
+def publish(payload: dict[str, bytes], libdir: str, unit: str) -> list[str]:
+    written = []
+    make_dir(libdir)
+    make_dir(os.path.join(libdir, "bin"))
+    module_dir = os.path.join(libdir, "screen_time")
+    make_dir(module_dir)
+
+    target = os.path.join(libdir, "bin", BIN_NAME)
+    write_file(target, payload[f"bin/{BIN_NAME}"], 0o755)
+    written.append(target)
+
+    keep = set()
+    for path, data in payload.items():
+        if not path.startswith("screen_time/"):
+            continue
+        name = os.path.basename(path)
+        keep.add(name)
+        target = os.path.join(module_dir, name)
+        write_file(target, data, 0o644)
+        written.append(target)
+
+    # A module left behind by an older version would still be importable, and
+    # it is no longer covered by any manifest.
+    for name in os.listdir(module_dir):
+        full = os.path.join(module_dir, name)
+        if name == "__pycache__":
+            for cached in os.listdir(full):
+                os.unlink(os.path.join(full, cached))
+            os.rmdir(full)
+        elif name.endswith(".py") and name not in keep:
+            os.unlink(full)
+
+    text = payload[UNIT_SOURCE].decode("utf-8")
+    text = text.replace(BINDIR_TOKEN, os.path.join(libdir, "bin"))
+    write_file(unit, text.encode("utf-8"), 0o644)
+    written.append(unit)
+    return written
+
+
+def main() -> int:
+    try:
+        here = os.environ["ST_HERE"]
+        libdir = os.environ["ST_LIBDIR"]
+        unit = os.environ["ST_UNIT"]
+    except KeyError as exc:
+        print(f"screen-time-publish: {exc} is not set", file=sys.stderr)
+        return 2
+
+    try:
+        # Everything is read and checked before anything is written, so a
+        # refusal leaves the previous install exactly as it was.
+        payload = collect(here)
+        written = publish(payload, libdir, unit)
+    except Refused as exc:
+        print(f"screen-time-publish: refused, nothing was installed\n  {exc}",
+              file=sys.stderr)
+        return 1
+
+    for path in written:
+        print(f"  {path}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
