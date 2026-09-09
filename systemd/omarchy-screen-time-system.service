@@ -16,7 +16,12 @@ TimeoutStopSec=10
 # the sandboxing stays modest on purpose.
 PrivateTmp=yes
 ProtectSystem=strict
-ReadWritePaths=/var/lib/omarchy-screen-time /run/omarchy-screen-time
+# /etc/omarchy-screen-time is in this list because the daemon writes its own
+# config: the parent PIN, the profiles, the demo switch. ProtectSystem=strict
+# makes all of /etc read-only, and without this line every one of those writes
+# fails with EROFS while the daemon carries on with the change in memory, so a
+# PIN appears to be set until the next restart takes it away again.
+ReadWritePaths=/var/lib/omarchy-screen-time /run/omarchy-screen-time /etc/omarchy-screen-time
 RuntimeDirectory=omarchy-screen-time
 RuntimeDirectoryMode=0755
 StateDirectory=omarchy-screen-time

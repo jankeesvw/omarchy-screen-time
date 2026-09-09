@@ -850,6 +850,24 @@ class Daemon:
             account.pin_blocked_until = now + PIN_LOCKOUT[index]
         return {"ok": False, "error": "bad_pin"}
 
+    def commit_config(self, new_config):
+        """Write the config, and only then run on it.
+
+        Changing self.config first and saving after leaves the daemon in the
+        one state nobody can act on: the caller is told the write failed, and
+        meanwhile the running daemon behaves as though it succeeded. Setting
+        the first PIN that way reports an error, refuses every later attempt
+        with bad_pin because a PIN is now "stored", and loses it at the next
+        restart. The write failing is not hypothetical either: in strict mode
+        the config lives under /etc, and the unit hardens /etc to read-only.
+
+        Callers hold self.lock. A failing save raises, which the connection
+        handler turns into an `internal` reply, with self.config untouched.
+        """
+        config_mod.save(self.layout, new_config)
+        self.config = new_config
+        return new_config
+
     def status_for(self, account):
         if self.config.get("demo"):
             return dict(DEMO_STATUS)
@@ -1000,14 +1018,16 @@ class Daemon:
                 return {"ok": False, "error": "bad_patch"}
             with self.lock:
                 key = account.profile_key
-                current = json.loads(json.dumps(self.config["profiles"].get(key, {})))
-                self.config["profiles"][key] = config_mod.sanitize_profile(
+                # Built beside the live config rather than into it, so a save
+                # that fails leaves the running daemon on the old profile.
+                candidate = json.loads(json.dumps(self.config))
+                current = candidate["profiles"].get(key, {})
+                candidate["profiles"][key] = config_mod.sanitize_profile(
                     config_mod.deep_merge(current, patch))
-                merged = config_mod.sanitize(self.config)
+                merged = config_mod.sanitize(candidate)
                 merged["pin"] = self.config.get("pin")
                 merged["demo"] = bool(self.config.get("demo"))
-                self.config = merged
-                config_mod.save(self.layout, merged)
+                self.commit_config(merged)
                 for existing in self.accounts.values():
                     existing.apply_config(merged)
                 return {"ok": True, "profile": key}
@@ -1023,8 +1043,7 @@ class Daemon:
                 # quieter way into demo mode; the `demo` command is the door
                 # and check_pin is the lock on it.
                 merged["demo"] = bool(self.config.get("demo"))
-                self.config = merged
-                config_mod.save(self.layout, merged)
+                self.commit_config(merged)
                 for existing in self.accounts.values():
                     existing.apply_config(merged)
                 return {"ok": True, "config_applied": True}
@@ -1034,14 +1053,16 @@ class Daemon:
             if not new_pin.isdigit() or not (4 <= len(new_pin) <= 12):
                 return {"ok": False, "error": "pin_must_be_4_to_12_digits"}
             with self.lock:
-                self.config["pin"] = config_mod.hash_pin(new_pin)
-                config_mod.save(self.layout, self.config)
+                candidate = dict(self.config)
+                candidate["pin"] = config_mod.hash_pin(new_pin)
+                self.commit_config(candidate)
                 return {"ok": True}
 
         if command == "demo":
             with self.lock:
-                self.config["demo"] = bool(message.get("value"))
-                config_mod.save(self.layout, self.config)
+                candidate = dict(self.config)
+                candidate["demo"] = bool(message.get("value"))
+                self.commit_config(candidate)
                 return {"ok": True, "demo": self.config["demo"]}
 
         return {"ok": False, "error": "unknown_command", "cmd": command}

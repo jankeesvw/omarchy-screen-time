@@ -507,6 +507,70 @@ def test_strict_mode():
         shutil.rmtree(root, ignore_errors=True)
 
 
+def test_config_write():
+    """A config change that cannot be written must not be half taken.
+
+    Found in the VM: the strict unit hardened /etc to read-only and left
+    /etc/omarchy-screen-time out of ReadWritePaths, so every config write
+    failed with EROFS. The daemon had already changed self.config, so setting
+    the first PIN reported an error, then refused every later attempt with
+    bad_pin because a PIN was now "stored", and lost it at the next restart.
+    """
+    from screen_time import daemon, config as config_mod
+
+    section("writing the config")
+
+    unit = pathlib.Path("systemd/omarchy-screen-time-system.service").read_text()
+    rw = [line for line in unit.splitlines() if line.startswith("ReadWritePaths=")]
+    check("the unit lets the daemon write its own config",
+          bool(rw) and "/etc/omarchy-screen-time" in rw[0],
+          rw[0] if rw else "no ReadWritePaths at all")
+
+    src = pathlib.Path("screen_time/daemon.py").read_text()
+    check("every config write goes through commit_config",
+          src.count("config_mod.save(") == 1,
+          "save is called from more than one place again")
+
+    class Fake:
+        def __init__(self):
+            self.config = {"pin": None, "demo": False}
+            self.layout = None
+
+    # A save that fails the way a read-only /etc fails.
+    real_save = config_mod.save
+    config_mod.save = lambda layout, cfg: (_ for _ in ()).throw(
+        OSError(30, "Read-only file system"))
+    try:
+        fake = Fake()
+        before = dict(fake.config)
+        wanted = dict(fake.config)
+        wanted["pin"] = {"algo": "pbkdf2_sha256", "salt": "aa", "hash": "bb"}
+        raised = False
+        try:
+            daemon.Daemon.commit_config(fake, wanted)
+        except OSError:
+            raised = True
+        check("a failing write is reported, not swallowed", raised)
+        check("and the daemon keeps the config it could still save",
+              fake.config == before, repr(fake.config))
+    finally:
+        config_mod.save = real_save
+
+    # And the ordinary case still adopts what it wrote.
+    written = {}
+    config_mod.save = lambda layout, cfg: written.update({"cfg": cfg})
+    try:
+        fake = Fake()
+        wanted = dict(fake.config)
+        wanted["demo"] = True
+        daemon.Daemon.commit_config(fake, wanted)
+        check("a write that succeeds is adopted", fake.config is wanted)
+        check("and it is the same config that reached the disk",
+              written.get("cfg") is wanted)
+    finally:
+        config_mod.save = real_save
+
+
 def main():
     test_clock()
     test_paths()
@@ -517,6 +581,7 @@ def main():
     test_idle_window()
     test_demo_gate()
     test_strict_mode()
+    test_config_write()
     print()
     if FAILURES:
         print(f"{len(FAILURES)} failed: {', '.join(FAILURES)}")
