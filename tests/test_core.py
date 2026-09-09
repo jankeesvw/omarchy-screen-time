@@ -571,6 +571,123 @@ def test_config_write():
         config_mod.save = real_save
 
 
+def test_roster():
+    """Somebody has to be able to fill an empty roster.
+
+    Found by installing strict from scratch in a VM: `users` starts empty, so
+    admit() refuses every account and every command answers not_managed. The
+    panel is the documented way to give a child a profile, and the panel could
+    not connect until one existed. There was no way in at all, root included.
+    """
+    from screen_time import daemon, config as config_mod
+
+    section("the roster")
+
+    src = pathlib.Path("screen_time/daemon.py").read_text()
+    # The gate that would otherwise swallow it is the last of the three
+    # `account is None` checks in dispatch(); users has to come before it.
+    gate = src.rindex('        if account is None:\n            return {"ok": False, "error": "not_managed"}')
+    check("users is answered before the not_managed gate",
+          src.index('if command == "users":') < gate)
+
+    saved = []
+
+    class Fake:
+        def __init__(self, mode="system"):
+            self.layout = type("L", (), {"mode": mode})()
+            self.lock = threading.RLock()
+            self.accounts = {}
+            self.config = {
+                "users": {},
+                "profiles": {"default": {}, "strict": {}},
+                "active_profile": "default",
+            }
+
+        def commit_config(self, new_config):
+            saved.append(new_config)
+            self.config = new_config
+
+        def reload_accounts(self):
+            pass
+
+    # Who may touch it.
+    fake = Fake()
+    check("a watched account may not edit the roster",
+          daemon.Daemon.parent_for_users(fake, 1000, {}) ==
+          {"ok": False, "error": "root_only"})
+    check("root may", daemon.Daemon.parent_for_users(fake, 0, {}) is None)
+    check("and a user-mode daemon says the roster means nothing there",
+          daemon.Daemon.parent_for_users(Fake("user"), 0, {}) ==
+          {"ok": False, "error": "system_mode_only"})
+
+    # Adding, with the account checked against the machine.
+    real_getpwnam = daemon.pwd.getpwnam
+    daemon.pwd.getpwnam = lambda name: (
+        type("P", (), {"pw_uid": 1001})() if name == "kind" else real_getpwnam(name))
+    try:
+        fake = Fake()
+        answer = daemon.Daemon.manage_users(fake, {"action": "add", "account": "kind"})
+        check("adding puts the account under the active profile",
+              answer.get("ok") and fake.config["users"] == {"kind": {"profile": "default"}},
+              repr(answer))
+        check("and it went through commit_config, so it reached the disk",
+              bool(saved) and saved[-1] is fake.config)
+
+        answer = daemon.Daemon.manage_users(
+            fake, {"action": "add", "account": "kind", "profile": "strict"})
+        check("a named profile is used",
+              fake.config["users"]["kind"]["profile"] == "strict", repr(answer))
+
+        answer = daemon.Daemon.manage_users(
+            fake, {"action": "add", "account": "kind", "profile": "nope"})
+        check("an unknown profile is refused",
+              answer == {"ok": False, "error": "unknown_profile"}, repr(answer))
+
+        answer = daemon.Daemon.manage_users(
+            fake, {"action": "add", "account": "nobody-here"})
+        check("an account that is not on the machine is refused",
+              answer == {"ok": False, "error": "unknown_account"}, repr(answer))
+
+        answer = daemon.Daemon.manage_users(fake, {"action": "add"})
+        check("adding nobody is refused", answer == {"ok": False, "error": "no_account"})
+
+        # Listing and removing.
+        answer = daemon.Daemon.manage_users(fake, {"action": "list"})
+        check("listing names the roster and the profiles to choose from",
+              answer.get("users") == {"kind": {"profile": "strict"}}
+              and answer.get("profiles") == ["default", "strict"], repr(answer))
+        check("the listing is a copy, not the live config",
+              answer["users"] is not fake.config["users"])
+
+        answer = daemon.Daemon.manage_users(fake, {"action": "remove", "account": "kind"})
+        check("removing takes the account out", answer.get("ok") and fake.config["users"] == {})
+        answer = daemon.Daemon.manage_users(fake, {"action": "remove", "account": "kind"})
+        check("removing somebody who was never there is refused",
+              answer == {"ok": False, "error": "not_in_roster"})
+        check("an unknown action is refused",
+              daemon.Daemon.manage_users(fake, {"action": "sudo", "account": "kind"})
+              == {"ok": False, "error": "unknown_action"})
+    finally:
+        daemon.pwd.getpwnam = real_getpwnam
+
+    # And the refusal says which of the two it was.
+    class FakeConn:
+        pass
+    import screen_time.daemon as dmod
+    real_peer = dmod.proto_peer_uid
+    dmod.proto_peer_uid = staticmethod(lambda conn: 1001)
+    try:
+        fake = Fake()
+        fake.managed_uids = lambda: [1000]
+        check("an account nobody rostered is told so, not that we are busy",
+              daemon.Daemon.refusal_for(fake, FakeConn()) == "not_managed")
+        fake.managed_uids = lambda: [1000, 1001]
+        check("a rostered account hitting the ceiling still reads as busy",
+              daemon.Daemon.refusal_for(fake, FakeConn()) == "busy")
+    finally:
+        dmod.proto_peer_uid = real_peer
+
+
 def main():
     test_clock()
     test_paths()
@@ -582,6 +699,7 @@ def main():
     test_demo_gate()
     test_strict_mode()
     test_config_write()
+    test_roster()
     print()
     if FAILURES:
         print(f"{len(FAILURES)} failed: {', '.join(FAILURES)}")

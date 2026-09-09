@@ -713,8 +713,12 @@ class Daemon:
             # from spending every thread and descriptor the daemon has, and a
             # daemon that has run out of both enforces nothing.
             if not self.admit(conn):
+                # Two different refusals wore the same word, and "busy" reads
+                # as a daemon under load in both. An account nobody put in the
+                # roster is not a queue to wait in: it is the answer to why
+                # the panel stays blank, and it should say so.
                 try:
-                    proto_write(conn, {"ok": False, "error": "busy"})
+                    proto_write(conn, {"ok": False, "error": self.refusal_for(conn)})
                 except OSError:
                     pass
                 try:
@@ -743,6 +747,16 @@ class Daemon:
             self.conn_total += 1
             self.conn_per_uid[uid] = self.conn_per_uid.get(uid, 0) + 1
         return True
+
+    def refusal_for(self, conn):
+        """Why admit() said no, in a word the caller can act on."""
+        try:
+            uid = proto_peer_uid(conn)
+        except OSError:
+            return "busy"
+        if self.layout.mode == "system" and uid != 0 and uid not in self.managed_uids():
+            return "not_managed"
+        return "busy"
 
     def release(self, uid):
         with self.conn_lock:
@@ -868,6 +882,82 @@ class Daemon:
         self.config = new_config
         return new_config
 
+    def parent_for_users(self, uid, message):
+        """None if this caller may edit the roster, a refusal otherwise.
+
+        The roster only means anything in system mode. A user-mode daemon
+        watches the account it runs as, whatever `users` says, so accepting
+        the command there would report success and change nothing.
+
+        In system mode the roster is root's: the config is root owned, so a
+        root caller can already write it with an editor, and asking a PIN of
+        somebody who can read the hash out of that file is a lock on the
+        inside of an open door. Refusing everyone else is what keeps a watched
+        account from writing itself out of its own limits.
+        """
+        if self.layout.mode != "system":
+            return {"ok": False, "error": "system_mode_only"}
+        if uid != 0:
+            return {"ok": False, "error": "root_only"}
+        return None
+
+    def manage_users(self, message):
+        """Put an account under a profile, or take it out again."""
+        action = str(message.get("action", ""))
+        if action == "list":
+            return {"ok": True, "users": json.loads(json.dumps(self.config.get("users", {}))),
+                    "profiles": sorted(self.config.get("profiles", {}))}
+
+        account = str(message.get("account", ""))
+        if not account:
+            return {"ok": False, "error": "no_account"}
+
+        if action == "add":
+            try:
+                pwd.getpwnam(account)
+            except KeyError:
+                # Naming an account that does not exist writes a roster entry
+                # that managed_uids() logs about forever and that silently
+                # limits nobody, which reads as the daemon ignoring you.
+                return {"ok": False, "error": "unknown_account"}
+            profile = str(message.get("profile") or self.config.get("active_profile"))
+            if profile not in self.config.get("profiles", {}):
+                return {"ok": False, "error": "unknown_profile"}
+            with self.lock:
+                candidate = json.loads(json.dumps(self.config))
+                candidate.setdefault("users", {})[account] = {"profile": profile}
+                self.commit_config(candidate)
+            self.reload_accounts()
+            return {"ok": True, "account": account, "profile": profile}
+
+        if action == "remove":
+            with self.lock:
+                if account not in self.config.get("users", {}):
+                    return {"ok": False, "error": "not_in_roster"}
+                candidate = json.loads(json.dumps(self.config))
+                del candidate["users"][account]
+                self.commit_config(candidate)
+            self.reload_accounts()
+            return {"ok": True, "account": account}
+
+        return {"ok": False, "error": "unknown_action"}
+
+    def reload_accounts(self):
+        """Drop accounts the roster no longer lists, and re-read the rest.
+
+        An account object outlives the config it was built from, so without
+        this a removed account keeps its budget enforced until the next
+        restart, and one whose profile changed keeps the old one.
+        """
+        with self.lock:
+            allowed = set(self.managed_uids())
+            for uid in [u for u in self.accounts if u not in allowed]:
+                account = self.accounts.pop(uid)
+                if account.day is not None and account.day.dirty:
+                    account.store.save_day(account.day)
+            for account in self.accounts.values():
+                account.apply_config(self.config)
+
     def status_for(self, account):
         if self.config.get("demo"):
             return dict(DEMO_STATUS)
@@ -899,6 +989,19 @@ class Daemon:
             days = days if isinstance(days, int) and 1 <= days <= 366 else 14
             with self.lock:
                 return {"ok": True, "days": account.store.history(days)}
+
+        if command == "users":
+            # Handled before the not_managed gate below, because this is the
+            # command that ends the state where nobody is managed. A fresh
+            # strict install has an empty `users`, so every account is refused
+            # by admit() and every command here answers not_managed: without a
+            # way in that does not need an account, the panel can never be
+            # reached to give anyone a profile, and the install is a machine
+            # nobody can configure. See parent_for_users().
+            refusal = self.parent_for_users(uid, message)
+            if refusal is not None:
+                return refusal
+            return self.manage_users(message)
 
         if account is None:
             return {"ok": False, "error": "not_managed"}

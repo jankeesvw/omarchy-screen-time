@@ -50,6 +50,19 @@ The copy has to be careful about the same thing it exists to prevent. The plugin
 
 `bin/screen-time-manifest` rewrites `MANIFEST.sha256`, and `--check` reports drift without writing. Run it after changing anything the strict install publishes, and commit the result in the same commit: the manifest is what ties the installed bytes to the commit the code was reviewed at, so a stale one either blocks the install or defeats the point of it.
 
+Installing it watches nobody yet. Say who it should watch:
+
+```bash
+sudo bin/omarchy-screen-time users add <account>     # under the active profile
+sudo bin/omarchy-screen-time users add <account> --profile evenings
+sudo bin/omarchy-screen-time users list
+sudo bin/omarchy-screen-time users remove <account>
+```
+
+That command is root's in this mode, and only in this mode. The config is root owned, so anyone who can run it can already edit that file by hand; asking a PIN of somebody who can read the hash out of it would be a lock on the inside of an open door. Everyone else is refused, which is what stops a watched account from writing itself out of its own limits. In the soft install the roster means nothing: that daemon watches the account it runs as, and it says so rather than pretending to change something.
+
+Until an account is on that list the daemon does not talk to it at all, and its bar widget stays hidden. That is deliberate, and the refusal says `not_managed` so it is clear which of the two it is: an account nobody added, or a daemon that has genuinely run out of connections.
+
 In this mode the state is root's and stays root's, and the idle flag is refused: pausing the clock is not something the account being watched gets to ask for. Both of those are the difference between a limit and a suggestion.
 
 `bin/omarchy-screen-time-system uninstall` stops the service, removes the unit and the group, and deletes the copied daemon. The days stay in `/var/lib/omarchy-screen-time/` until you delete them yourself.

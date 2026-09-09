@@ -179,6 +179,15 @@ def cmd_config_patch(args):
     return _emit(_request({"cmd": "config.patch", "patch": patch, "pin": _ask_pin(args)}), args.human)
 
 
+def cmd_users(args):
+    message = {"cmd": "users", "action": args.action}
+    if args.action != "list":
+        message["account"] = args.account
+        if getattr(args, "profile", None):
+            message["profile"] = args.profile
+    return _emit(_request(message), args.human)
+
+
 def cmd_pin_set(args):
     new_pin = getpass.getpass("new PIN: ") if sys.stdin.isatty() else sys.stdin.readline().strip()
     old = ""
@@ -249,6 +258,18 @@ def build_parser():
     config_patch = config_sub.add_parser("patch", help="merge a partial change into your profile")
     config_patch.add_argument("patch", help="a json object, e.g. '{\"earn\": {\"enabled\": false}}'")
     config_patch.set_defaults(func=cmd_config_patch)
+
+    users = sub.add_parser(
+        "users", help="who the strict daemon watches (root, system mode)")
+    users_sub = users.add_subparsers(dest="users_command", required=True)
+    users_sub.add_parser("list").set_defaults(func=cmd_users, action="list")
+    users_add = users_sub.add_parser("add", help="put an account under a profile")
+    users_add.add_argument("account")
+    users_add.add_argument("--profile", help="defaults to the active profile")
+    users_add.set_defaults(func=cmd_users, action="add")
+    users_remove = users_sub.add_parser("remove", help="stop watching an account")
+    users_remove.add_argument("account")
+    users_remove.set_defaults(func=cmd_users, action="remove")
 
     pin = sub.add_parser("pin")
     pin_sub = pin.add_subparsers(dest="pin_command", required=True)
