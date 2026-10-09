@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Wayland
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // The countdown for the last minutes: a small card at the bottom of the
@@ -44,7 +45,7 @@ Item {
   }
 
   readonly property bool lightTheme: {
-    var bg = Color.background
+    var bg = Commons.Color.background
     return (0.299 * bg.r + 0.587 * bg.g + 0.114 * bg.b) > 0.5
   }
   readonly property color urgentColor: lightTheme ? "#B03434" : "#E06C6C"
@@ -70,8 +71,8 @@ Item {
       anchors.horizontalCenter: parent.horizontalCenter
       anchors.bottom: parent.bottom
       anchors.bottomMargin: Style.space(67)
-      color: Util.alpha(Color.background, 0.97)
-      borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
+      color: Util.alpha(Commons.Color.background, 0.97)
+      borderSpec: Border.surfaceSpec("popups", "border", Commons.Color.popups.border, Math.max(1, Style.space(2)))
       radius: Style.cornerRadius
       opacity: root.opened ? 1 : 0
 
@@ -86,7 +87,7 @@ Item {
           text: "\uf254"
           font.family: Style.font.family
           font.pixelSize: Style.font.displayLarge
-          color: root.urgent ? root.urgentColor : Color.popups.text
+          color: root.urgent ? root.urgentColor : Commons.Color.popups.text
         }
 
         Column {
@@ -99,7 +100,7 @@ Item {
             font.family: Style.font.family
             font.bold: true
             font.pixelSize: Style.font.displayLarge
-            color: root.urgent ? root.urgentColor : Color.popups.text
+            color: root.urgent ? root.urgentColor : Commons.Color.popups.text
           }
 
           Text {
@@ -107,7 +108,7 @@ Item {
             text: root.caption
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
-            color: Util.alpha(Color.popups.text, 0.7)
+            color: Util.alpha(Commons.Color.popups.text, 0.7)
           }
         }
       }

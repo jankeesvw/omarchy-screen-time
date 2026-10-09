@@ -5,6 +5,7 @@ import Quickshell.Io
 import qs.Ui
 import qs.Commons
 
+import qs.Commons as Commons
 // The parent's settings, in a window of their own. Opened from the panel
 // after the PIN unlock; every change goes to the daemon as a partial patch
 // and applies immediately.
@@ -15,10 +16,10 @@ Item {
   property string clientPath: ""
   property string pin: ""
   property string note: ""
-  property color noteColor: Color.foreground
+  property color noteColor: Commons.Color.foreground
 
   readonly property bool lightTheme: {
-    var bg = Color.background
+    var bg = Commons.Color.background
     return (0.299 * bg.r + 0.587 * bg.g + 0.114 * bg.b) > 0.5
   }
   readonly property color okColor: lightTheme ? "#3C7C4E" : "#5FA46B"
@@ -40,8 +41,8 @@ Item {
   readonly property var dayLabels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
   function fadeText(amount) {
-    var c = Color.foreground
-    var bg = Color.background
+    var c = Commons.Color.foreground
+    var bg = Commons.Color.background
     return Qt.rgba(c.r + (bg.r - c.r) * amount,
                    c.g + (bg.g - c.g) * amount,
                    c.b + (bg.b - c.b) * amount, 1)
@@ -173,7 +174,7 @@ Item {
     id: win
     visible: false
     title: "Screen Time settings"
-    color: Color.background
+    color: Commons.Color.background
 
     // Sized to the content, and fixed: a non-resizable window is floated by
     // Hyprland as a dialog instead of tiled over the screen, and a height
@@ -261,10 +262,10 @@ Item {
             implicitHeight: Math.max(Style.space(84), agreementField.implicitHeight + Style.space(4))
             radius: Style.cornerRadius
             color: Style.controlFill(agreementField.activeFocus, agreementField.hovered,
-                                     Color.foreground, Color.accent)
+                                     Commons.Color.foreground, Commons.Color.accent)
             border.width: 1
             border.color: agreementField.activeFocus
-              ? Color.accent : root.fadeText(0.75)
+              ? Commons.Color.accent : root.fadeText(0.75)
 
             ScrollView {
               anchors.fill: parent
@@ -277,7 +278,7 @@ Item {
                 activeFocusOnTab: true
                 placeholderText: "On school days about an hour, and we stop before dinner."
                 placeholderTextColor: root.fadeText(0.55)
-                color: Color.foreground
+                color: Commons.Color.foreground
                 font.family: Style.font.family
                 font.pixelSize: Style.font.body
                 background: null
@@ -367,7 +368,7 @@ Item {
 
           PanelSectionHeader {
             text: "BLOCKED PERIODS"
-            foreground: Color.foreground
+            foreground: Commons.Color.foreground
           }
 
           Repeater {
@@ -406,7 +407,7 @@ Item {
                   id: periodRemove
                   iconText: root.iconClose
                   tooltipText: "Remove this period"
-                  foreground: Color.foreground
+                  foreground: Commons.Color.foreground
                   hoverColor: root.errColor
                   size: Style.space(22)
                   focusable: true
@@ -481,7 +482,7 @@ Item {
           Text {
             textFormat: Text.PlainText
             text: "Earn minutes with math problems"
-            color: Color.foreground
+            color: Commons.Color.foreground
             font.family: Style.font.family
             font.pixelSize: Style.font.body
             anchors.verticalCenter: parent.verticalCenter
@@ -503,7 +504,7 @@ Item {
             Text {
               textFormat: Text.PlainText
               text: "Division problems too"
-              color: Color.foreground
+              color: Commons.Color.foreground
               font.family: Style.font.family
               font.pixelSize: Style.font.body
               anchors.verticalCenter: parent.verticalCenter

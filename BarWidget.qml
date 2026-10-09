@@ -4,6 +4,7 @@ import Quickshell.Io
 import qs.Ui
 import qs.Commons
 
+import qs.Commons as Commons
 // The pill in the bar plus the panel behind it. The pill shows a glyph for
 // the phase and the time that is left; the panel is where the child earns
 // minutes with math problems and where a parent, behind the PIN, hands out
@@ -46,13 +47,13 @@ Panel {
   // towards the background instead of darkening, and pick the accent colours
   // per theme.
   function fade(c, amount) {
-    var bg = Color.background
+    var bg = Commons.Color.background
     return Qt.rgba(c.r + (bg.r - c.r) * amount,
                    c.g + (bg.g - c.g) * amount,
                    c.b + (bg.b - c.b) * amount, 1)
   }
   readonly property bool lightTheme: {
-    var bg = Color.background
+    var bg = Commons.Color.background
     return (0.299 * bg.r + 0.587 * bg.g + 0.114 * bg.b) > 0.5
   }
   readonly property color warnColor: lightTheme ? "#B4620A" : "#E5A050"
@@ -283,13 +284,13 @@ Panel {
   function drawerColor(typed, flagMissingPin) {
     if (parentError) return fade(blockColor, 0.84)
     if (pinMissing) {
-      if (!flagMissingPin) return fade(Color.popups.text, 0.9)
-      return typed > 0 ? fade(Color.accent, Math.max(0.7, 0.88 - 0.045 * typed))
+      if (!flagMissingPin) return fade(Commons.Color.popups.text, 0.9)
+      return typed > 0 ? fade(Commons.Color.accent, Math.max(0.7, 0.88 - 0.045 * typed))
                        : fade(warnColor, 0.88)
     }
     if (parentUnlocked) return fade(okColor, 0.84)
-    if (typed > 0) return fade(Color.accent, Math.max(0.7, 0.88 - 0.045 * typed))
-    return fade(Color.popups.text, 0.9)
+    if (typed > 0) return fade(Commons.Color.accent, Math.max(0.7, 0.88 - 0.045 * typed))
+    return fade(Commons.Color.popups.text, 0.9)
   }
 
   function grant(minutes) {
@@ -460,7 +461,7 @@ Panel {
           root.parentNote = payload.demo === true
             ? "Demo mode, nothing changed." : actionProc.pendingLabel
           root.parentNoteColor = payload.demo === true
-            ? root.fade(Color.popups.text, 0.3) : root.okColor
+            ? root.fade(Commons.Color.popups.text, 0.3) : root.okColor
         } else if (payload.error === "pin_locked_out") {
           root.parentUnlocked = false
           root.parentNote = "Too many tries. Wait " + payload.retry_in_seconds + "s."
@@ -568,7 +569,7 @@ Panel {
         // detail pill, and one uppercase meta line underneath
         PanelHero {
           width: parent.width
-          foreground: Color.popups.text
+          foreground: Commons.Color.popups.text
           title: root.heroTitle
           detail: {
             if (root.together) return root.fmt(root.service ? root.service.spentSeconds : 0) + " today"
@@ -668,7 +669,7 @@ Panel {
                   textFormat: Text.PlainText
                   text: modelData.value
                   anchors.horizontalCenter: parent.horizontalCenter
-                  color: modelData.accent === true ? root.okColor : Color.popups.text
+                  color: modelData.accent === true ? root.okColor : Commons.Color.popups.text
                   font.family: Style.font.family
                   font.pixelSize: Style.font.title
                   font.bold: true
@@ -678,7 +679,7 @@ Panel {
                   textFormat: Text.PlainText
                   text: String(modelData.label).toUpperCase()
                   anchors.horizontalCenter: parent.horizontalCenter
-                  color: root.fade(Color.popups.text, 0.45)
+                  color: root.fade(Commons.Color.popups.text, 0.45)
                   font.family: Style.font.family
                   font.pixelSize: Style.font.caption
                   font.bold: true
@@ -705,7 +706,7 @@ Panel {
             height: Style.space(12)
             radius: 0
             visible: !root.together || (root.service && root.service.agreementMinutes > 0)
-            color: root.fade(Color.popups.text, 0.86)
+            color: root.fade(Commons.Color.popups.text, 0.86)
 
             readonly property int total: {
               if (!root.service) return 0
@@ -789,7 +790,7 @@ Panel {
             visible: root.underBarLine !== ""
             text: root.underBarLine
             width: parent.width
-            color: root.fade(Color.popups.text, 0.45)
+            color: root.fade(Commons.Color.popups.text, 0.45)
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
           }
@@ -806,7 +807,7 @@ Panel {
 
           PanelSectionHeader {
             text: "OUR AGREEMENT"
-            foreground: Color.popups.text
+            foreground: Commons.Color.popups.text
           }
 
           Text {
@@ -817,7 +818,7 @@ Panel {
             width: parent.width
             wrapMode: Text.WordWrap
             font.italic: root.service ? root.service.agreementText !== "" : false
-            color: Color.popups.text
+            color: Commons.Color.popups.text
             font.family: Style.font.family
             font.pixelSize: Style.font.body
           }
@@ -833,7 +834,7 @@ Panel {
 
           PanelSectionHeader {
             text: "HOW IS IT GOING?"
-            foreground: Color.popups.text
+            foreground: Commons.Color.popups.text
           }
 
           // No button next to it: enter keeps the note, and the placeholder
@@ -906,7 +907,7 @@ Panel {
                   anchors.left: parent.left
                   anchors.top: parent.top
                   radius: Math.max(Style.cornerRadius, Style.space(10))
-                  color: root.fade(Color.popups.text, 0.86)
+                  color: root.fade(Commons.Color.popups.text, 0.86)
                   width: bubbleText.width + Style.space(20)
                   height: bubbleText.implicitHeight + Style.space(16)
                   rotation: noteRow.tilt
@@ -921,7 +922,7 @@ Panel {
                     width: Math.min(implicitWidth, notes.width * 0.72)
                     wrapMode: Text.WordWrap
                     anchors.centerIn: parent
-                    color: Color.popups.text
+                    color: Commons.Color.popups.text
                     font.family: Style.font.family
                     font.pixelSize: Style.font.body
                   }
@@ -934,7 +935,7 @@ Panel {
                   id: forgetButton
                   iconText: root.iconClose
                   tooltipText: "Forget this note"
-                  foreground: Color.popups.text
+                  foreground: Commons.Color.popups.text
                   hoverColor: root.blockColor
                   size: Style.space(20)
                   focusable: true
@@ -957,7 +958,7 @@ Panel {
                   anchors.right: parent.right
                   anchors.bottom: bubble.bottom
                   anchors.bottomMargin: Style.space(5)
-                  color: root.fade(Color.popups.text, 0.55)
+                  color: root.fade(Commons.Color.popups.text, 0.55)
                   font.family: Style.font.family
                   font.pixelSize: Style.font.caption
                 }
@@ -1076,7 +1077,7 @@ Panel {
 
           PanelSectionHeader {
             text: "EARN MINUTES"
-            foreground: Color.popups.text
+            foreground: Commons.Color.popups.text
           }
 
           // The one thing the child came here to do, so it sits on a surface
@@ -1087,7 +1088,7 @@ Panel {
             width: parent.width
             visible: root.question !== null
             radius: Style.cornerRadius
-            color: root.fade(Color.popups.text, 0.88)
+            color: root.fade(Commons.Color.popups.text, 0.88)
             implicitHeight: questionRow.implicitHeight + Style.space(12)
 
             Row {
@@ -1103,7 +1104,7 @@ Panel {
                 id: questionText
                 textFormat: Text.PlainText
                 text: root.question ? String(root.question.text) + " =" : ""
-                color: Color.popups.text
+                color: Commons.Color.popups.text
                 font.family: Style.font.family
                 font.bold: true
                 font.pixelSize: Style.font.title
@@ -1142,7 +1143,7 @@ Panel {
             text: root.quizNote
             width: parent.width
             wrapMode: Text.WordWrap
-            color: root.fade(Color.popups.text, 0.3)
+            color: root.fade(Commons.Color.popups.text, 0.3)
             font.family: Style.font.family
             font.pixelSize: Style.font.body
           }
@@ -1162,7 +1163,7 @@ Panel {
             text: root.question && root.service
               ? "+" + root.question.reward_seconds + "s per correct answer  ·  " + root.fmt(root.service.earnRoomSeconds) + " earnable today"
               : ""
-            color: root.fade(Color.popups.text, 0.45)
+            color: root.fade(Commons.Color.popups.text, 0.45)
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
           }
@@ -1177,7 +1178,7 @@ Panel {
 
             PanelSectionHeader {
               text: "SUMS TODAY  ·  " + root.fmt(root.service ? root.service.earnedSeconds : 0).toUpperCase() + " EARNED"
-              foreground: Color.popups.text
+              foreground: Commons.Color.popups.text
             }
 
             ListView {
@@ -1201,7 +1202,7 @@ Panel {
                   id: earnRowText
                   textFormat: Text.PlainText
                   text: root.plain(modelData.q)
-                  color: root.fade(Color.popups.text, 0.2)
+                  color: root.fade(Commons.Color.popups.text, 0.2)
                   font.family: Style.font.family
                   font.pixelSize: Style.font.body
                   anchors.verticalCenter: parent.verticalCenter
@@ -1227,7 +1228,7 @@ Panel {
                       ? String(modelData.answer)
                       : "+" + Number(modelData.seconds) + "s"
                     color: parent.parent.missed
-                      ? root.fade(Color.popups.text, 0.35) : root.okColor
+                      ? root.fade(Commons.Color.popups.text, 0.35) : root.okColor
                     font.family: Style.font.family
                     font.pixelSize: Style.font.body
                     font.bold: !parent.parent.missed
@@ -1255,7 +1256,7 @@ Panel {
             PanelSectionHeader {
               id: parentHeader
               text: "PARENT"
-              foreground: Color.popups.text
+              foreground: Commons.Color.popups.text
             }
 
             Text {
@@ -1264,7 +1265,7 @@ Panel {
               // that is exactly what it is: not shut.
               text: root.parentUnlocked || root.pinMissing ? root.iconUnlock : root.iconLock
               color: root.pinMissing ? root.warnColor
-                : (root.parentUnlocked ? root.okColor : root.fade(Color.popups.text, 0.5))
+                : (root.parentUnlocked ? root.okColor : root.fade(Commons.Color.popups.text, 0.5))
               anchors.right: parent.right
               anchors.verticalCenter: parentHeader.verticalCenter
               font.family: Style.font.family
@@ -1312,7 +1313,7 @@ Panel {
                   text: "No PIN yet, so anyone can hand out minutes. Pick one and this drawer is yours."
                   width: parent.width
                   wrapMode: Text.WordWrap
-                  color: root.fade(Color.popups.text, 0.2)
+                  color: root.fade(Commons.Color.popups.text, 0.2)
                   font.family: Style.font.family
                   font.pixelSize: Style.font.body
                 }
@@ -1430,7 +1431,7 @@ Panel {
                   id: gearButton
                   iconText: root.iconGear
                   tooltipText: "Settings"
-                  foreground: Color.popups.text
+                  foreground: Commons.Color.popups.text
                   size: Style.spacing.controlHeight
                   focusable: true
                   bordered: true
